@@ -163,6 +163,13 @@ downloaded first, etc.]
 
 - Run the main pipeline: `[e.g. python -m src.pipeline]`
 - Launch notebooks: `jupyter lab notebooks/`
+- Hourly carbon-intensity experiments, from the repo root with `.venv` active and `EIA_API_KEY` in `.env`:
+  - `notebooks/01_linear_day_ahead.ipynb` — ordinary least squares, ridge, elastic net; hour dummies versus a sine/cosine clock
+  - `notebooks/02_boosted_trees.ipynb` — histogram gradient boosting, grid on depth, learning rate, and leaf size
+  - `notebooks/03_forecast_horizon.ipynb` — same models with features available a day ahead, at the hour, or one hour ahead
+  - `notebooks/04_loss_functions.ipynb` — squared error, absolute error, and quantile pinball loss
+  - `notebooks/05_modality_ensemble.ipynb` — weather model, demand-forecast model, a weight grid, and one model on all columns
+- The first run caches `data/processed/hourly_model_panel.csv`. Later runs read the cache. Shared code is `src/carbon_data.py` and `src/modeling.py`.
 - [Any other entry point: a Streamlit app, a FastAPI server, a training
   script — give the exact command.]
 
@@ -173,7 +180,10 @@ downloaded first, etc.]
   pytest
   ```
 - Some validation also happens inline in notebooks (e.g. sanity-checking
-  shapes/values after a transform) — [say which notebooks, if any, are
+  shapes/values after a transform). The carbon notebooks check the holdout
+  dates and the hour-of-day baseline; the formula, lags, and feature lists
+  are tested in `tests/test_carbon_models.py`.
+- [say which notebooks, if any, are
   load-bearing for correctness rather than pure exploration].
 - Before opening a PR: run `pytest` and make sure it passes. New logic in
   `src/` should come with a test — either in `tests/` or a clear
@@ -237,6 +247,8 @@ task done. Do this even if the person didn't explicitly ask you to.
   above.
 
 ## Useful context
+
+Hourly training target is `carbon_intensity_g_per_kwh` for CAISO in 2026, estimated from EIA fuel generation (gas 393, coal 1003, oil 814 kg CO₂/MWh; nuclear, hydro, wind, solar, and geothermal at 0). Do not use fuel megawatthours, fuel shares, or net generation as model inputs. Day-ahead features are the clock, carbon at the same hour yesterday and last week, yesterday's weather, and the EIA day-ahead demand forecast. The last 28 days are the holdout. Settings are chosen with `TimeSeriesSplit` on the earlier hours.
 
 [Anything else an agent (or new teammate) would want to know: links to a
 `DesignDoc.md`, the dataset's source/license, known gotchas, an
