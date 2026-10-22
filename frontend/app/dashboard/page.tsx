@@ -12,7 +12,13 @@ export default function DashboardPage() {
   return (
     <>
       <SiteHeader current="dashboard" />
-      <Dashboard />
+      <div className="relative flex flex-1 flex-col">
+        {/* Graph paper behind the title, fading out before the cards; the cards stay solid. */}
+        <div className="bg-graph-paper mask-fade-down pointer-events-none absolute inset-x-0 top-0 h-96" aria-hidden />
+        <div className="relative flex flex-1 flex-col">
+          <Dashboard />
+        </div>
+      </div>
       <SiteFooter />
     </>
   );

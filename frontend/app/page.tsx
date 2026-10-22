@@ -44,6 +44,7 @@ export default function Home() {
       <SiteHeader current="home" />
       <main className="flex-1">
         <div className="relative overflow-hidden">
+          <div className="bg-graph-paper mask-fade-hero pointer-events-none absolute inset-0" aria-hidden />
           <HeroLeaves />
           <section className="relative mx-auto grid max-w-6xl gap-10 px-4 pt-12 pb-16 sm:pt-20 lg:grid-cols-[1.1fr_1fr] lg:items-center lg:pb-24">
             <div>
@@ -70,27 +71,32 @@ export default function Home() {
           </section>
         </div>
 
-        <section id="how-it-works" className="scroll-mt-20 border-t border-border bg-surface">
-          <div className="mx-auto max-w-6xl px-4 py-16 sm:py-20">
+        <section id="how-it-works" className="relative scroll-mt-20 border-t border-border bg-surface">
+          <div className="bg-dot-grid mask-fade-y pointer-events-none absolute inset-0" aria-hidden />
+          <div className="relative mx-auto max-w-6xl px-4 py-16 sm:py-20">
             <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">How it works</h2>
             <p className="mt-2 max-w-2xl text-ink-2">
               A scheduled pipeline does the heavy lifting. Requests only read saved forecasts, so answers are fast and keep
               working when the model doesn&apos;t.
             </p>
-            <ol className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {STEPS.map(({ icon: Icon, title, body }, i) => (
-                <li key={title} className="rounded-2xl border border-border bg-page p-5">
-                  <div className="flex items-center justify-between">
-                    <span className="flex size-10 items-center justify-center rounded-xl bg-surface-2">
-                      <Icon className="size-5 text-ink" aria-hidden />
-                    </span>
-                    <span className="text-sm font-medium text-muted tabular-nums">0{i + 1}</span>
-                  </div>
-                  <h3 className="mt-4 font-semibold">{title}</h3>
-                  <p className="mt-1.5 text-sm text-ink-2">{body}</p>
-                </li>
-              ))}
-            </ol>
+            <div className="relative mt-10">
+              {/* A line through the icons, like a transmission line linking each stage; shows in the gaps. */}
+              <div className="pointer-events-none absolute inset-x-0 top-10 hidden h-px bg-axis lg:block" aria-hidden />
+              <ol className="relative grid gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8">
+                {STEPS.map(({ icon: Icon, title, body }, i) => (
+                  <li key={title} className="rounded-2xl border border-border bg-page p-5">
+                    <div className="flex items-center justify-between">
+                      <span className="flex size-10 items-center justify-center rounded-xl bg-surface-2">
+                        <Icon className="size-5 text-ink" aria-hidden />
+                      </span>
+                      <span className="text-sm font-medium text-muted tabular-nums">0{i + 1}</span>
+                    </div>
+                    <h3 className="mt-4 font-semibold">{title}</h3>
+                    <p className="mt-1.5 text-sm text-ink-2">{body}</p>
+                  </li>
+                ))}
+              </ol>
+            </div>
           </div>
         </section>
 
@@ -113,8 +119,12 @@ export default function Home() {
                 ))}
               </ul>
             </div>
-            <div className="min-w-0">
-              <CliShowcase />
+            <div className="relative min-w-0">
+              {/* Offset dot panel behind the terminal, like a printed drop shadow. */}
+              <div className="bg-dot-grid pointer-events-none absolute inset-0 translate-x-4 translate-y-4 rounded-2xl" aria-hidden />
+              <div className="relative">
+                <CliShowcase />
+              </div>
               <p className="mt-2 text-xs text-muted">Example output.</p>
             </div>
           </div>
