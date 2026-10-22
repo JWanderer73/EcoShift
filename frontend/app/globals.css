@@ -1,0 +1,137 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens. Chart chrome and series colors follow the dataviz reference palette
+ * (validated for color-vision deficiency in light and dark). Dark values are declared twice:
+ * the media query follows the OS, and [data-theme] follows the in-app toggle.
+ */
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --surface-2: #f1f0ec;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #6b6a65;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+  --primary: #0e7a55;
+  --primary-ink: #ffffff;
+  --forecast: #2a78d6;
+  --window: #1baf7a;
+  /* Text on a solid --window fill. Dark in both themes: it clears contrast on both aqua steps. */
+  --on-window: #0b0b0b;
+  --good: #0ca30c;
+  --good-text: #006300;
+  --warning: #fab219;
+  --critical: #d03b3b;
+  /* Terminal mockups stay dark in both themes, like a real terminal. */
+  --terminal: #111110;
+  --terminal-ink: #e8e7e3;
+  --terminal-muted: #8f8d86;
+  --terminal-accent: #2bbd88;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --surface-2: #242422;
+    --ink: #f0efec;
+    --ink-2: #c3c2b7;
+    --muted: #9a988f;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.1);
+    --primary: #2bbd88;
+    --primary-ink: #0b0b0b;
+    --forecast: #3987e5;
+    --window: #199e70;
+    --good-text: #0ca30c;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --surface-2: #242422;
+  --ink: #f0efec;
+  --ink-2: #c3c2b7;
+  --muted: #9a988f;
+  --grid: #2c2c2a;
+  --axis: #383835;
+  --border: rgba(255, 255, 255, 0.1);
+  --primary: #2bbd88;
+  --primary-ink: #0b0b0b;
+  --forecast: #3987e5;
+  --window: #199e70;
+  --good-text: #0ca30c;
+}
+
+@theme inline {
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-grid: var(--grid);
+  --color-axis: var(--axis);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-ink: var(--primary-ink);
+  --color-forecast: var(--forecast);
+  --color-window: var(--window);
+  --color-on-window: var(--on-window);
+  --color-good: var(--good);
+  --color-good-text: var(--good-text);
+  --color-warning: var(--warning);
+  --color-critical: var(--critical);
+  --color-terminal: var(--terminal);
+  --color-terminal-ink: var(--terminal-ink);
+  --color-terminal-muted: var(--terminal-muted);
+  --color-terminal-accent: var(--terminal-accent);
+  --font-sans: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+body {
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+:focus-visible {
+  outline: 2px solid var(--forecast);
+  outline-offset: 2px;
+}
+
+/* Hero leaf outlines draw themselves in like a pen sketch. Paths use pathLength="1". */
+@keyframes sketch-in {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.sketch-path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: sketch-in 1.8s ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sketch-path {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0s !important;
+    animation-duration: 0s !important;
+  }
+}
