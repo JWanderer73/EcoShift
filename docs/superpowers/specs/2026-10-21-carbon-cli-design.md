@@ -10,9 +10,16 @@ time windows for a job, with % CO₂ saved vs. running now) in the terminal,
 for developers and coding agents. It ships with an agent skill file telling
 coding agents when to run it and how to read the result.
 
-The backend (pipeline, API, forecasts) does not exist yet, so the CLI runs on
-**synthetic forecast data** generated in code. Every output is labeled
-synthetic so nobody mistakes it for a real forecast.
+```
+you → carbon windows --duration 2h → API → "best: 2–4am, saves 31% CO₂"
+```
+
+The CLI only sends the job (length, deadline, region) to the API and prints
+what comes back. The backend (pipeline, API, forecasts) does not exist yet,
+so for now the "API" is a local stand-in (`src/api.py`) that returns the same
+JSON response the real one will, computed from **synthetic forecast data**
+generated in code. Every output is labeled synthetic so nobody mistakes it
+for a real forecast.
 
 ## Non-goals
 
@@ -26,16 +33,18 @@ synthetic so nobody mistakes it for a real forecast.
 src/
   forecast.py   # get_forecast(region) -> Forecast (synthetic for now)
   windows.py    # pure logic: forecast + job → best windows
-  cli.py        # Typer app: `carbon windows`
+  api.py        # get_windows(job) -> API response dict (local stand-in for now)
+  cli.py        # Typer app: `carbon windows`, talks only to api.py
 tests/
-  test_forecast.py, test_windows.py, test_cli.py
+  test_forecast.py, test_windows.py, test_api.py, test_cli.py
 skills/carbon-windows/SKILL.md   # agent instruction file
 pyproject.toml                   # `carbon` console script, pytest config
 ```
 
-`windows.py` imports nothing from `forecast.py` or `cli.py`, so the future
-serving Lambda can reuse it unchanged. Swapping synthetic data for the real
-API only changes `forecast.py`.
+Dependencies point one way: `cli.py → api.py → forecast.py + windows.py`.
+`windows.py` imports nothing from the others, so the future serving Lambda
+can reuse it unchanged. When the real API exists, only `api.py` changes (to
+an HTTP call) and `cli.py` stays the same.
 
 ## `src/forecast.py`
 
@@ -71,6 +80,18 @@ API only changes `forecast.py`.
 - `ValueError` if `duration_hours < 1`, `top < 1`, or no candidate fits
   before the deadline.
 
+## `src/api.py`
+
+The API boundary, shaped like the real serving Lambda.
+
+- `get_windows(duration_hours, deadline, region="CISO", top=3, now=None)
+  -> dict` returns the JSON response shown under `src/cli.py`.
+- Gets the forecast, clamps a deadline past the forecast end to that end
+  (setting `deadline_clamped`), runs `find_best_windows`, and serializes
+  times as ISO 8601 UTC.
+- Raises `ApiError` for an unknown region or a job that doesn't fit before
+  the deadline, with a message the CLI can print as is.
+
 ## `src/cli.py`
 
 ```
@@ -82,13 +103,15 @@ carbon windows --duration 4h [--deadline 2026-10-22T09:00 | 24h]
   Rounded up to whole hours.
 - `--deadline`: ISO 8601 datetime (no timezone means the machine's local
   time) or a relative duration from now (`24h`). Default: end of forecast.
-  A deadline past the forecast end is clamped to it, with a warning on
-  stderr.
+  If the response says `deadline_clamped`, a warning goes to stderr.
 - `--region`: default `CISO`. `--top`: default 3, range 1–10.
+- The CLI parses its options, calls `api.get_windows`, and renders the
+  response. It does no window math itself.
 - Default output: a table (Rank, Start, End, Avg gCO₂/kWh, CO₂ saved) in
   local time, under a header naming the region, forecast time, the
   "running now" intensity, and a "synthetic data" warning.
-- `--json` prints only JSON to stdout (warnings stay on stderr):
+- `--json` prints the API response as is, and only that, to stdout
+  (warnings stay on stderr):
 
 ```json
 {
@@ -105,9 +128,9 @@ carbon windows --duration 4h [--deadline 2026-10-22T09:00 | 24h]
 }
 ```
 
-- Errors: bad `--duration`/`--deadline`/`--region`/`--top` values exit 2
-  (Typer's usage error). A job that doesn't fit before the deadline exits 1
-  with a message on stderr.
+- Errors: unparseable `--duration`/`--deadline` or out-of-range `--top`
+  exit 2 (Typer's usage error). An `ApiError` (unknown region, job doesn't
+  fit before the deadline) exits 1 with its message on stderr.
 
 ## Agent skill (`skills/carbon-windows/SKILL.md`)
 
@@ -132,6 +155,9 @@ don't present synthetic results as real).
   baseline in results, input validation.
 - `test_forecast.py`: 48 hourly points, deterministic, positive values,
   regions differ, unknown region error.
+- `test_api.py`: response matches the schema, clamping sets
+  `deadline_clamped`, `ApiError` for unknown region and a job that doesn't
+  fit.
 - `test_cli.py` (Typer `CliRunner`): table shows the synthetic warning,
-  `--json` parses and matches the schema, duration/deadline parsing, clamp
+  `--json` output equals the API response, duration/deadline parsing, clamp
   warning, exit codes 1 and 2.
