@@ -131,9 +131,11 @@ rather than redefining logic inline.
 ├── README.md
 ├── .env.example
 ├── requirements.txt
+├── pyproject.toml     # installs the `carbon` CLI; pytest and ruff config
 ├── notebooks/        # exploration, EDA, prototyping — not the source of truth for pipeline logic
 ├── src/               # the actual reusable code — import this from notebooks
 ├── tests/             # pytest-style tests for src/
+├── skills/            # agent skills shipped with the project (carbon-windows)
 ├── data/
 │   ├── raw/           # never edit by hand, never overwrite
 │   └── processed/
@@ -152,6 +154,7 @@ that don't apply, e.g. no `frontend/` if there's no UI.]
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+pip install -e .       # installs the `carbon` command
 cp .env.example .env   # then fill in your own local values — never commit .env
 ```
 
@@ -163,6 +166,10 @@ downloaded first, etc.]
 
 - Run the main pipeline: `[e.g. python -m src.pipeline]`
 - Launch notebooks: `jupyter lab notebooks/`
+- Find low-emission windows for a job: `carbon windows --duration 4h`
+  (`--json` for coding agents, `--help` for all options). It runs on
+  synthetic data from `src/api.py` until the real API exists. Agent
+  instructions: `skills/carbon-windows/SKILL.md`.
 - [Any other entry point: a Streamlit app, a FastAPI server, a training
   script — give the exact command.]
 
@@ -181,8 +188,8 @@ downloaded first, etc.]
 
 ## Code style & conventions
 
-- Follow PEP 8. [`ruff check src/` / `flake8 src/` if the team uses a
-  linter — say which one.]
+- Follow PEP 8. Lint and format with ruff (config in `pyproject.toml`):
+  `ruff check src tests` and `ruff format src tests`.
 - Every public function/class in `src/` needs a docstring (what it does,
   params, return value).
 - No magic numbers in logic — use a named constant or a config value, and
