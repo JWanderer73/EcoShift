@@ -89,7 +89,7 @@ The dashboard calls two `GET` endpoints. Field names match `carbon windows --jso
 
 Notes for the API team:
 
-- `/forecast` isn't in the CLI spec. The dashboard needs it because the chart and the draggable job block use every hour, not just the top windows.
+- `/forecast` gives every hour, not just the top windows. The dashboard's chart and draggable job block need it, and so does the chart in the CLI's table output (`--json` doesn't call it).
 - When no window fits before the deadline, the dashboard accepts either an empty `windows` list or an error response. The Python stand-in raises an error.
 - The browser calls the API directly, so it needs CORS headers allowing the dashboard's Vercel domain.
 - The region list (`lib/regions.ts`) matches the CLI: CISO, ERCO, PJM.

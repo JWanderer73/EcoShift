@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from src.api import ApiError, get_windows
+from src.api import ApiError, get_forecast, get_windows
 
 NOW = datetime(2026, 10, 21, 14, 35, tzinfo=UTC)
 FORECAST_END = "2026-10-23T14:00:00+00:00"
@@ -66,3 +66,21 @@ def test_unknown_region_raises() -> None:
 def test_job_that_does_not_fit_raises() -> None:
     with pytest.raises(ApiError, match="doesn't fit"):
         get_windows(2, NOW + timedelta(hours=1), now=NOW)
+
+
+def test_forecast_response_shape() -> None:
+    response = get_forecast("ERCO", now=NOW)
+    assert set(response) == {"region", "generated_at", "stale", "data_source", "points"}
+    assert response["region"] == "ERCO"
+    assert response["generated_at"] == "2026-10-21T14:00:00+00:00"
+    assert response["data_source"] == "synthetic"
+    points = response["points"]
+    assert len(points) == 48
+    assert points[0]["start"] == "2026-10-21T14:00:00+00:00"
+    assert set(points[0]) == {"start", "intensity"}
+    json.dumps(response)
+
+
+def test_forecast_unknown_region_raises() -> None:
+    with pytest.raises(ApiError, match="unknown region"):
+        get_forecast("NOPE", now=NOW)

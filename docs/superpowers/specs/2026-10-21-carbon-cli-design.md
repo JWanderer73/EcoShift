@@ -33,7 +33,7 @@ for a real forecast.
 src/
   forecast.py   # get_forecast(region) -> Forecast (synthetic for now)
   windows.py    # pure logic: forecast + job → best windows
-  api.py        # get_windows(job) -> API response dict (local stand-in for now)
+  api.py        # get_windows(job), get_forecast(region) -> API response dicts (local stand-in)
   cli.py        # Typer app: `carbon windows`, talks only to api.py
 tests/
   test_forecast.py, test_windows.py, test_api.py, test_cli.py
@@ -91,6 +91,10 @@ The API boundary, shaped like the real serving Lambda.
   times as ISO 8601 UTC.
 - Raises `ApiError` for an unknown region or a job that doesn't fit before
   the deadline, with a message the CLI can print as is.
+- `get_forecast(region="CISO", now=None) -> dict` returns the dashboard's
+  `/forecast` response (`region`, `generated_at`, `stale`, `data_source`,
+  and hourly `points` of `start` and `intensity`). The table output uses it
+  to draw its chart.
 
 ## `src/cli.py`
 
@@ -107,9 +111,16 @@ carbon windows --duration 4h [--deadline 2026-10-22T09:00 | 24h]
 - `--region`: default `CISO`. `--top`: default 3, range 1–10.
 - The CLI parses its options, calls `api.get_windows`, and renders the
   response. It does no window math itself.
-- Default output: a table (Rank, Start, End, Avg gCO₂/kWh, CO₂ saved) in
-  local time, under a header naming the region, forecast time, the
-  "running now" intensity, and a "synthetic data" warning.
+- Default output, in local time:
+  - a header naming the region, forecast time, the "running now"
+    intensity, and a "synthetic data" warning;
+  - a headline with the best window, how soon it starts, and % CO₂ saved
+    (or "run now" when nothing before the deadline is cleaner);
+  - a 48-hour chart, one bar per hour colored green, yellow or red by which
+    third of the forecast's range it falls in, dimmed after the deadline,
+    with each ranked window bracketed underneath (`└─1─┘`);
+  - a table (Rank, Start, End, Avg gCO₂/kWh, CO₂ saved), with the same
+    intensity colors and the saved % in green (or red when negative).
 - `--json` prints the API response as is, and only that, to stdout
   (warnings stay on stderr):
 

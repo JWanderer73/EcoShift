@@ -1,15 +1,17 @@
 """Local stand-in for the EcoShift API.
 
-``get_windows`` returns the same JSON-ready response the real serving Lambda
-will. For now it runs on synthetic forecasts. When the API is deployed, this
-function becomes an HTTP call and the CLI doesn't change.
+``get_windows`` and ``get_forecast`` return the same JSON-ready responses as
+the real API's ``/windows`` and ``/forecast`` endpoints. For now they run on
+synthetic forecasts. When the API is deployed, they become HTTP calls and the
+CLI doesn't change.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from src.forecast import REGIONS, get_forecast
+from src.forecast import REGIONS
+from src.forecast import get_forecast as _synthetic_forecast
 from src.windows import Window, find_best_windows
 
 DEFAULT_REGION = "CISO"
@@ -48,7 +50,7 @@ def get_windows(
             deadline.
     """
     try:
-        forecast = get_forecast(region, now)
+        forecast = _synthetic_forecast(region, now)
     except ValueError as err:
         raise ApiError(str(err)) from err
     forecast_end = forecast.points[-1].start + timedelta(hours=1)
@@ -76,6 +78,34 @@ def get_windows(
             "avg_intensity_g_per_kwh": baseline.avg_intensity,
         },
         "windows": [_window_json(rank, w) for rank, w in enumerate(windows, start=1)],
+    }
+
+
+def get_forecast(region: str = DEFAULT_REGION, now: datetime | None = None) -> dict:
+    """Return the hourly forecast, shaped like the API's ``/forecast`` response.
+
+    Args:
+        region: EIA balancing-authority code, one of ``SUPPORTED_REGIONS``.
+        now: Current time, timezone-aware. Defaults to the real current time.
+
+    Returns:
+        A JSON-serializable dict with ``region``, ``generated_at``, ``stale``,
+        ``data_source`` and ``points``: consecutive hours, each with its
+        ``start`` and ``intensity`` in gCO2/kWh.
+
+    Raises:
+        ApiError: If the region is unknown.
+    """
+    try:
+        forecast = _synthetic_forecast(region, now)
+    except ValueError as err:
+        raise ApiError(str(err)) from err
+    return {
+        "region": forecast.region,
+        "generated_at": _iso(forecast.generated_at),
+        "stale": forecast.stale,
+        "data_source": forecast.data_source,
+        "points": [{"start": _iso(p.start), "intensity": p.intensity} for p in forecast.points],
     }
 
 
