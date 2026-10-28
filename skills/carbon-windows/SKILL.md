@@ -35,6 +35,10 @@ carbon windows --duration <job length> [--deadline <latest finish>] [--region <r
 
 Always pass `--json`. The default table is for people.
 
+If `carbon` isn't installed, ask the user before installing it with
+`brew install allghelierce/ecoshift/ecoshift` (macOS or Linux) or
+`pipx install git+https://github.com/JWanderer73/EcoShift.git`.
+
 ## Reading the result
 
 ```json

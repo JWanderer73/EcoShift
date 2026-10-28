@@ -169,7 +169,9 @@ downloaded first, etc.]
 - Find low-emission windows for a job: `carbon windows --duration 4h`
   (`--json` for coding agents, `--help` for all options). It runs on
   synthetic data from `src/api.py` until the real API exists. Agent
-  instructions: `skills/carbon-windows/SKILL.md`.
+  instructions: `skills/carbon-windows/SKILL.md`. Outside this repo it
+  installs with `brew install allghelierce/ecoshift/ecoshift` (formula in
+  the `Allghelierce/homebrew-ecoshift` tap).
 - [Any other entry point: a Streamlit app, a FastAPI server, a training
   script — give the exact command.]
 
