@@ -16,6 +16,8 @@ export default defineConfig({
   webServer: {
     command: `npx next dev -p ${PORT}`,
     url: `http://localhost:${PORT}`,
+    // Always test on sample data, so `?scenario=` works even when .env.local points at an API.
+    env: { NEXT_PUBLIC_ECOSHIFT_API_URL: "" },
     reuseExistingServer: !process.env.CI,
   },
 });

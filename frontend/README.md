@@ -19,6 +19,17 @@ cp .env.example .env.local
 # set NEXT_PUBLIC_ECOSHIFT_API_URL to the API's root URL
 ```
 
+### Run against the local Python API
+
+`src/server.py` serves the same `/forecast` and `/windows` the Lambda will, from the repo's Python code:
+
+```bash
+python -m src.server                                               # from the repo root; http://localhost:8000
+echo "NEXT_PUBLIC_ECOSHIFT_API_URL=http://localhost:8000" > frontend/.env.local
+```
+
+Restart `npm run dev` after changing `.env.local`. The forecast is still synthetic until the ML pipeline lands, so the "Sample data" label stays.
+
 ### Demo and test states
 
 On sample data, add `?scenario=` to any page to imitate the backend:
