@@ -20,7 +20,10 @@ venv/
 data/*
 !data/README.md
 !data/raw/.gitkeep
+!data/processed/
+data/processed/*
 !data/processed/.gitkeep
+!data/processed/cleaned_weather_carbon.csv
 results/*
 !results/.gitkeep
 models/*
