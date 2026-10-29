@@ -163,13 +163,14 @@ downloaded first, etc.]
 
 - Run the main pipeline: `[e.g. python -m src.pipeline]`
 - Launch notebooks: `jupyter lab notebooks/`
-- Hourly carbon-intensity experiments, from the repo root with `.venv` active and `EIA_API_KEY` in `.env`:
-  - `notebooks/01_linear_day_ahead.ipynb` — ordinary least squares, ridge, elastic net; hour dummies versus a sine/cosine clock
-  - `notebooks/02_boosted_trees.ipynb` — histogram gradient boosting, grid on depth, learning rate, and leaf size
-  - `notebooks/03_forecast_horizon.ipynb` — same models with features available a day ahead, at the hour, or one hour ahead
-  - `notebooks/04_loss_functions.ipynb` — squared error, absolute error, and quantile pinball loss
-  - `notebooks/05_modality_ensemble.ipynb` — weather model, demand-forecast model, a weight grid, and one model on all columns
+- Hourly carbon-intensity experiments, from the repo root with `.venv` active and `EIA_API_KEY` in `.env`. The five forecasts are fixed in `fixed_forecasts` (no hyperparameter search):
+  - `notebooks/01_where_forecasts_miss.ipynb` — bias, MAE, and RMSE, and which hours of the day are wrong
+  - `notebooks/02_level_versus_shape.ipynb` — how much of the miss is the day's level versus the order of hours
+  - `notebooks/03_shift_decision.ipynb` — extra carbon from running in the hours the forecast called clean
+  - `notebooks/04_which_score_matches_the_job.ipynb` — which score tracks a shift decision, and which tracks a carbon report
+  - `notebooks/05_days_that_break.ipynb` — the hours and days where the day-ahead ridge is wrong
 - The first run caches `data/processed/hourly_model_panel.csv`. Later runs read the cache. Shared code is `src/carbon_data.py` and `src/modeling.py`.
+- Location test table: `notebooks/Data3.ipynb` fetches a 3-year daily CAISO and weather sample and writes `data/processed/location_strain_cost.csv` (about 1000 rows). Targets are `grid_strain_mwh` and `cost_cents_per_kwh`. Fuel mix, demand, interchange, sales, and revenue are not columns.
 - [Any other entry point: a Streamlit app, a FastAPI server, a training
   script — give the exact command.]
 
@@ -248,7 +249,7 @@ task done. Do this even if the person didn't explicitly ask you to.
 
 ## Useful context
 
-Hourly training target is `carbon_intensity_g_per_kwh` for CAISO in 2026, estimated from EIA fuel generation (gas 393, coal 1003, oil 814 kg CO₂/MWh; nuclear, hydro, wind, solar, and geothermal at 0). Do not use fuel megawatthours, fuel shares, or net generation as model inputs. Day-ahead features are the clock, carbon at the same hour yesterday and last week, yesterday's weather, and the EIA day-ahead demand forecast. The last 28 days are the holdout. Settings are chosen with `TimeSeriesSplit` on the earlier hours.
+Hourly training target is `carbon_intensity_g_per_kwh` for CAISO in 2026, estimated from EIA fuel generation (gas 393, coal 1003, oil 814 kg CO₂/MWh; nuclear, hydro, wind, solar, and geothermal at 0). Do not use fuel megawatthours, fuel shares, or net generation as model inputs. Day-ahead features are the clock, carbon at the same hour yesterday and last week, yesterday's weather, and the EIA day-ahead demand forecast. The last 28 days are the holdout. The five notebooks use `fixed_forecasts` and do not tune. `docs/forecast-explanation.md` explains the scores and where those forecasts fail. `notebooks/Data3.ipynb` is a separate location question: strain and residential price at a latitude and longitude. `docs/DesignDoc.md` is still the course template.
 
 [Anything else an agent (or new teammate) would want to know: links to a
 `DesignDoc.md`, the dataset's source/license, known gotchas, an

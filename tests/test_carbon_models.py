@@ -13,6 +13,8 @@ from src.modeling import (
     PREVIOUS_HOUR,
     TARGET,
     check_features,
+    shape_mae,
+    shift_regret,
     train_test_split,
 )
 
@@ -53,3 +55,20 @@ def test_train_test_split_is_ordered_and_disjoint() -> None:
     train, test = train_test_split(frame, test_days=7)
     assert train.index.max() < test.index.min()
     assert test.index.min() == frame.index.max() - pd.Timedelta(days=7)
+
+
+def test_shift_regret_is_zero_when_the_order_is_right() -> None:
+    actual = np.array([10.0, 80.0, 20.0, 90.0])
+    predicted = actual + 40.0
+    assert shift_regret(actual, predicted, hours=2) == 0.0
+
+
+def test_shift_regret_is_the_extra_carbon_of_the_wrong_hours() -> None:
+    actual = np.array([10.0, 80.0, 20.0, 90.0])
+    predicted = np.array([90.0, 10.0, 80.0, 20.0])
+    assert shift_regret(actual, predicted, hours=2) == np.float64(70.0)
+
+
+def test_shape_mae_ignores_a_constant_level_miss() -> None:
+    actual = np.array([10.0, 30.0, 20.0])
+    assert shape_mae(actual, actual + 50.0) == 0.0

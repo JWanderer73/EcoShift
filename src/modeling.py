@@ -262,3 +262,143 @@ def predict_tree(model, frame: pd.DataFrame, categorical: Sequence[str], numeric
     """Predict with a tree fitted by ``fit_tree``, clipping at zero."""
     matrix = feature_matrix(frame, categorical, numeric)
     return np.maximum(model.predict(matrix), 0.0)
+
+
+# A four-hour block is long enough to move a batch of work and short enough
+# that "the clean part of the day" is a real choice on a solar-shaped grid.
+SHIFT_HOURS = 4
+# Fixed on purpose. Tuning belongs in a later pass.
+RIDGE_ALPHA = 1.0
+
+
+def clip_prediction(predicted) -> np.ndarray:
+    """Carbon intensity cannot be negative."""
+    return np.maximum(np.asarray(predicted, dtype=float), 0.0)
+
+
+def error_components(y_true, y_pred) -> dict[str, float]:
+    """Bias, MAE, and RMSE in gCO₂/kWh, plus the share of hours predicted too clean.
+
+    Bias is prediction minus actual. A negative bias means the forecast said the
+    grid was cleaner than it was, so a carbon report built from it would be low.
+    """
+    actual = np.asarray(y_true, dtype=float)
+    predicted = clip_prediction(y_pred)
+    residual = actual - predicted
+    return {
+        "bias": float(np.mean(predicted - actual)),
+        "mae": float(np.mean(np.abs(residual))),
+        "rmse": float(np.sqrt(np.mean(np.square(residual)))),
+        "underpredicted_share": float(np.mean(residual > 0)),
+    }
+
+
+def shift_regret(actual, predicted, hours: int = SHIFT_HOURS) -> float:
+    """Extra gCO₂/kWh from running in the predicted-clean hours.
+
+    Regret is the actual intensity of the hours the forecast called cleanest,
+    minus the actual intensity of the hours that really were cleanest. Zero
+    means the forecast ranked the window correctly. A wrong level that keeps
+    the same order has regret zero.
+
+    Args:
+        actual: Actual gCO₂/kWh for one day, one entry per hour.
+        predicted: Forecast for those same hours.
+        hours: How many hours the workload needs.
+
+    Returns:
+        Extra gCO₂/kWh. Non-negative aside from ties.
+    """
+    actual = np.asarray(actual, dtype=float)
+    predicted = clip_prediction(predicted)
+    if len(actual) < hours:
+        raise ValueError(f"need at least {hours} hours to score a shift")
+    true_hours = np.argpartition(actual, hours - 1)[:hours]
+    chosen_hours = np.argpartition(predicted, hours - 1)[:hours]
+    return float(actual[chosen_hours].mean() - actual[true_hours].mean())
+
+
+def shape_mae(actual, predicted) -> float:
+    """MAE after each series has its own mean removed.
+
+    This is the part of the error that is the shape of the day. A forecast that
+    is 40 g/kWh too clean in every hour has shape MAE zero.
+    """
+    actual = np.asarray(actual, dtype=float)
+    predicted = clip_prediction(predicted)
+    actual_shape = actual - actual.mean()
+    predicted_shape = predicted - predicted.mean()
+    return float(np.mean(np.abs(actual_shape - predicted_shape)))
+
+
+def local_day_labels(frame: pd.DataFrame) -> pd.Series:
+    """Calendar date in America/Los_Angeles for each row."""
+    dates = frame.index.tz_convert("America/Los_Angeles").date
+    return pd.Series(dates, index=frame.index, name="local_day")
+
+
+def _rank_correlation(actual: np.ndarray, predicted: np.ndarray) -> float:
+    if np.unique(actual).size < 2 or np.unique(predicted).size < 2:
+        return float("nan")
+    return float(pd.Series(actual).corr(pd.Series(predicted), method="spearman"))
+
+
+def day_scores(frame: pd.DataFrame, predicted, hours: int = SHIFT_HOURS) -> pd.DataFrame:
+    """One row per complete local day: level, shape, MAE, RMSE, and shift regret.
+
+    Days with fewer than 24 hours are omitted. The holdout starts and ends
+    mid-afternoon Pacific, so the first and last dates are partial.
+    """
+    labels = local_day_labels(frame)
+    actual_all = frame[TARGET].to_numpy(dtype=float)
+    predicted_all = clip_prediction(predicted)
+    rows = []
+    for day in pd.unique(labels):
+        chosen = np.flatnonzero(labels.to_numpy() == day)
+        if len(chosen) != 24:
+            continue
+        actual = actual_all[chosen]
+        forecast = predicted_all[chosen]
+        residual = actual - forecast
+        rows.append(
+            {
+                "local_day": day,
+                "actual_mean": float(actual.mean()),
+                "predicted_mean": float(forecast.mean()),
+                "level_error": float(forecast.mean() - actual.mean()),
+                "mae": float(np.mean(np.abs(residual))),
+                "rmse": float(np.sqrt(np.mean(np.square(residual)))),
+                "shape_mae": shape_mae(actual, forecast),
+                "regret_4h": shift_regret(actual, forecast, hours),
+                "regret_1h": shift_regret(actual, forecast, 1),
+                "rank_corr": _rank_correlation(actual, forecast),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def fixed_forecasts(train: pd.DataFrame, test: pd.DataFrame) -> dict[str, np.ndarray]:
+    """The same five forecasts in every notebook. Nothing here is tuned.
+
+    Ridge uses penalty 1. The tree uses ``TREE_PARAMS`` and absolute error.
+    Both see only day-ahead columns. ``previous hour`` is the bound on how
+    much of the miss is just issuing the forecast a day early.
+    """
+    from sklearn.linear_model import Ridge
+
+    forecasts = {
+        "hour-of-day mean": hour_climatology(train, test),
+        "yesterday, same hour": clip_prediction(test["carbon_lag_24"].to_numpy()),
+    }
+    ridge = linear_pipeline(Ridge(alpha=RIDGE_ALPHA), DAY_AHEAD_CATEGORICAL, DAY_AHEAD_NUMERIC)
+    ridge.fit(feature_matrix(train, DAY_AHEAD_CATEGORICAL, DAY_AHEAD_NUMERIC), train[TARGET])
+    forecasts["day-ahead ridge"] = clip_prediction(
+        ridge.predict(feature_matrix(test, DAY_AHEAD_CATEGORICAL, DAY_AHEAD_NUMERIC))
+    )
+    tree = fit_tree(train, DAY_AHEAD_CATEGORICAL, DAY_AHEAD_NUMERIC, loss="absolute_error")
+    forecasts["day-ahead tree"] = predict_tree(tree, test, DAY_AHEAD_CATEGORICAL, DAY_AHEAD_NUMERIC)
+    next_numeric = DAY_AHEAD_NUMERIC + PREVIOUS_HOUR
+    next_model = linear_pipeline(Ridge(alpha=RIDGE_ALPHA), HOUR_DOW, next_numeric)
+    next_model.fit(feature_matrix(train, HOUR_DOW, next_numeric), train[TARGET])
+    forecasts["previous hour"] = clip_prediction(next_model.predict(feature_matrix(test, HOUR_DOW, next_numeric)))
+    return forecasts
