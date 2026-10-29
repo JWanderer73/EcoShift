@@ -10,7 +10,7 @@ import { averageIntensity, findBestWindows, forecastEnd, hourStart, indexOfTime,
 import { clamp } from "@/lib/chart";
 import { buildCliCommand } from "@/lib/cli";
 import { DEFAULT_JOB_HOURS, DEFAULT_REGION, FORECAST_HORIZON_HOURS, HOUR_MS } from "@/lib/config";
-import { formatHours, formatIntensity, formatPct, formatRange } from "@/lib/format";
+import { formatDayTime, formatHours, formatIntensity, formatPct, formatRange } from "@/lib/format";
 import { useMinuteClock } from "@/lib/hooks/use-clock";
 import { useQuery } from "@/lib/hooks/use-query";
 import { findRegion, REGIONS } from "@/lib/regions";
@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 import { CHART_HEIGHT, ForecastChart } from "./forecast-chart";
 import { ForecastTable } from "./forecast-table";
 import { NowCard } from "./now-card";
-import { DeadlineField, JobLengthPicker, WindowList } from "./planner";
+import { DeadlineField, fieldLabel, JobLengthPicker, WindowList } from "./planner";
 import { ErrorState, FreshnessBadge, SampleDataBadge, StaleBanner } from "./status";
 
 type View = "chart" | "table";
@@ -28,8 +28,8 @@ const CLEANER_EPSILON = 0.5;
 
 function RegionSelect({ value, onChange }: { value: string; onChange: (code: string) => void }) {
   return (
-    <label className="flex items-center gap-2 text-sm">
-      <span className="text-muted">Region</span>
+    <label className="flex flex-col gap-2">
+      <span className={fieldLabel}>Region</span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -119,7 +119,7 @@ function LoadingState() {
       <div className="h-44 animate-pulse rounded-2xl bg-surface-2" />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start">
         <div className="animate-pulse rounded-2xl bg-surface-2" style={{ height: CHART_HEIGHT + 120 }} />
-        <div className="h-[520px] animate-pulse rounded-2xl bg-surface-2" />
+        <div className="h-96 animate-pulse rounded-2xl bg-surface-2" />
       </div>
     </div>
   );
@@ -187,8 +187,6 @@ export function Dashboard() {
     const defaultStart = best ? Math.max(indexOfTime(points, best.start), 0) : 0;
     const jobStart = lastStart < 0 ? null : clamp(pickedStart ?? defaultStart, 0, lastStart);
     const current = points[0];
-    const cleanest = points.reduce((a, b) => (b.intensity < a.intensity ? b : a));
-    const dirtiest = points.reduce((a, b) => (b.intensity > a.intensity ? b : a));
     const regionName = findRegion(data.region)?.shortName ?? data.region;
     const firstHour = current.start;
     const nowHours = now === null ? null : clamp((now - hourStart(points, 0)) / HOUR_MS, 0, points.length);
@@ -200,10 +198,9 @@ export function Dashboard() {
         <NowCard
           regionName={regionName}
           current={current}
-          cleanest={cleanest}
-          dirtiest={dirtiest}
           durationHours={durationHours}
           best={windowsMatch ? windows[0] : undefined}
+          baseline={windowsMatch ? windowsData.baseline : undefined}
           firstHour={firstHour}
         />
 
@@ -246,20 +243,11 @@ export function Dashboard() {
           </Card>
 
           <Card className="min-w-0 space-y-6">
-            <CardTitle>Plan a job</CardTitle>
-            <JobLengthPicker value={durationHours} onChange={changeDuration} />
-            <DeadlineField
-              value={deadline}
-              min={new Date(hourStart(points, 0) + durationHours * HOUR_MS)}
-              max={new Date(end)}
-              isCustom={customDeadline !== null}
-              onChange={changeDeadline}
-            />
-
             <section aria-labelledby="best-times">
-              <h3 id="best-times" className="mb-2 text-sm font-medium text-ink">
-                Best start times
-              </h3>
+              <CardTitle id="best-times">Best start times</CardTitle>
+              <CardDescription className="mb-3">
+                {formatHours(durationHours)} job · done by {formatDayTime(deadline)}
+              </CardDescription>
               {windowsQuery.error ? (
                 <ErrorState title="Couldn't rank start times" message={windowsQuery.error.message} onRetry={windowsQuery.retry} />
               ) : windowsData && (windowsMatch || windowsQuery.isRefetching) ? (
@@ -299,15 +287,33 @@ export function Dashboard() {
 
   return (
     <main className="mx-auto w-full max-w-6xl flex-1 space-y-4 px-4 py-6 sm:py-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Carbon forecast</h1>
-        <p className="text-sm text-muted">Find the cleanest time to run a heavy job.</p>
+      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Carbon forecast</h1>
+          <p className="text-sm text-muted">Find the cleanest time to run a heavy job.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {data && <FreshnessBadge generatedAt={data.generated_at} stale={data.stale} now={now} />}
+          {data?.data_source === SYNTHETIC_SOURCE && <SampleDataBadge />}
+        </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
+      {/* Everything the answer depends on, above the answer. */}
+      <div className="flex flex-wrap items-start gap-x-8 gap-y-4">
         <RegionSelect value={region} onChange={changeRegion} />
-        {data && <FreshnessBadge generatedAt={data.generated_at} stale={data.stale} now={now} />}
-        {data?.data_source === SYNTHETIC_SOURCE && <SampleDataBadge />}
+        <JobLengthPicker value={durationHours} onChange={changeDuration} />
+        {deadline && end !== null ? (
+          <DeadlineField
+            value={deadline}
+            forecastStart={new Date(hourStart(points, 0))}
+            min={new Date(hourStart(points, 0) + durationHours * HOUR_MS)}
+            max={new Date(end)}
+            isCustom={customDeadline !== null}
+            onChange={changeDeadline}
+          />
+        ) : (
+          !forecast.error && <div className="h-[4.75rem] w-96 max-w-full animate-pulse rounded-lg bg-surface-2" aria-hidden />
+        )}
       </div>
 
       {data?.stale && <StaleBanner generatedAt={data.generated_at} />}

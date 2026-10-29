@@ -9,6 +9,10 @@ test.describe("landing page", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Run heavy jobs when the grid is cleanest.");
     await expect(page.getByTestId("hero-headline")).toContainText(/cleaner|cleanest/);
     await expect(page.getByText("Sample data").first()).toBeVisible();
+    // The CLI demo prints the same forecast as the hero card.
+    const best = (await page.getByTestId("hero-headline").textContent()) ?? "";
+    const pct = best.match(/(\d+)% cleaner/)?.[1];
+    if (pct) await expect(page.getByTestId("cli-output")).toContainText(`${pct}% less CO₂ than running now`);
     await page.getByRole("link", { name: "Open the dashboard" }).click();
     await expect(page).toHaveURL(/\/dashboard$/);
   });
@@ -63,8 +67,22 @@ test.describe("dashboard", () => {
     await expect(page.getByText("carbon windows --duration 4h --region ERCO")).toBeVisible();
   });
 
+  test("a deadline preset re-ranks windows and adds the deadline to the CLI command", async ({ page }) => {
+    await page.getByRole("button", { name: "Tomorrow 9 AM" }).click();
+    await expect(page.getByRole("button", { name: "Tomorrow 9 AM" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByText(/carbon windows --duration 4h --deadline \S+T09:00-0[78]:00 --region CISO/)).toBeVisible();
+    await page.getByRole("button", { name: "Any time" }).click();
+    await expect(page.getByText("carbon windows --duration 4h --region CISO")).toBeVisible();
+  });
+
+  test("the now card shows what the savings compare against", async ({ page }) => {
+    await expect(page.getByText("Start now", { exact: true })).toBeVisible();
+    await expect(page.getByText("Best window", { exact: true })).toBeVisible();
+  });
+
   test("a deadline too soon for the job says so", async ({ page }) => {
-    const deadline = page.getByLabel("Must finish by");
+    await page.getByRole("button", { name: "Custom" }).click();
+    const deadline = page.getByLabel("Custom deadline");
     // Two hours before the earliest deadline that fits a 4h job.
     const tooSoon = await deadline.evaluate((input: HTMLInputElement) => {
       const earliest = new Date(input.min);

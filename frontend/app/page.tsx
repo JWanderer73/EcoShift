@@ -1,7 +1,6 @@
 import { ArrowRight, Bot, BrainCircuit, Database, Server, Terminal, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { CliShowcase } from "@/components/landing/cli-showcase";
-import { HeroLeaves } from "@/components/landing/hero-leaves";
 import { LiveForecastCard } from "@/components/landing/live-forecast-card";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
@@ -43,9 +42,8 @@ export default function Home() {
     <>
       <SiteHeader current="home" />
       <main className="flex-1">
-        <div className="relative overflow-hidden">
+        <div className="relative">
           <div className="bg-graph-paper mask-fade-hero pointer-events-none absolute inset-0" aria-hidden />
-          <HeroLeaves />
           <section className="relative mx-auto grid max-w-6xl gap-10 px-4 pt-12 pb-16 sm:pt-20 lg:grid-cols-[1.1fr_1fr] lg:items-center lg:pb-24">
             <div>
               <p className="text-sm font-medium text-primary">Carbon-aware scheduling for heavy compute</p>
@@ -125,7 +123,7 @@ export default function Home() {
               <div className="relative">
                 <CliShowcase />
               </div>
-              <p className="mt-2 text-xs text-muted">Example output.</p>
+              <p className="mt-2 text-xs text-muted">Same forecast as the card above.</p>
             </div>
           </div>
         </section>

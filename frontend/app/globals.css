@@ -96,6 +96,8 @@
   --color-terminal-accent: var(--terminal-accent);
   --font-sans: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  /* System monospace fonts with box-drawing and block glyphs, so CLI tables and bars line up. Geist Mono has neither. */
+  --font-terminal: Menlo, "Cascadia Mono", Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace;
 }
 
 /* Decorative patterns derive from the ink color, so they flip with the theme on their own. */
@@ -172,25 +174,7 @@ body::before {
   outline-offset: 2px;
 }
 
-/* Hero leaf outlines draw themselves in like a pen sketch. Paths use pathLength="1". */
-@keyframes sketch-in {
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
-.sketch-path {
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-  animation: sketch-in 1.8s ease-out forwards;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .sketch-path {
-    animation: none;
-    stroke-dashoffset: 0;
-  }
-
   *,
   *::before,
   *::after {

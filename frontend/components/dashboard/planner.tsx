@@ -3,12 +3,21 @@
 import { useState } from "react";
 import type { CarbonWindow } from "@/lib/api/types";
 import { JOB_LENGTH_PRESETS, MAX_JOB_HOURS, MIN_JOB_HOURS } from "@/lib/config";
+import { deadlinePresets } from "@/lib/deadline";
 import { formatDayTime, formatHours, formatIntensity, formatPct, formatRange, toDateTimeLocal } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const fieldLabel = "text-sm font-medium text-ink";
+export const fieldLabel = "text-sm font-medium text-ink-2";
 const inputClass =
   "h-9 rounded-lg border border-border bg-surface px-3 text-sm text-ink placeholder:text-muted focus-visible:outline-2 focus-visible:outline-forecast";
+
+/** A one-tap option button; the active one is filled. */
+function chipClass(active: boolean) {
+  return cn(
+    "h-9 min-w-12 rounded-lg border px-3 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+    active ? "border-ink bg-ink text-page" : "border-border bg-surface text-ink-2 enabled:hover:bg-surface-2",
+  );
+}
 
 /** Preset chips plus a custom whole-hour field. */
 export function JobLengthPicker({ value, onChange }: { value: number; onChange: (hours: number) => void }) {
@@ -18,7 +27,7 @@ export function JobLengthPicker({ value, onChange }: { value: number; onChange: 
 
   return (
     <fieldset>
-      <legend className={fieldLabel}>How long is the job?</legend>
+      <legend className={fieldLabel}>Job length</legend>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         {JOB_LENGTH_PRESETS.map((hours) => {
           const active = hours === value && !customActive;
@@ -31,10 +40,7 @@ export function JobLengthPicker({ value, onChange }: { value: number; onChange: 
                 setDraft("");
                 onChange(hours);
               }}
-              className={cn(
-                "h-9 min-w-12 rounded-lg border px-3 text-sm font-medium transition-colors",
-                active ? "border-ink bg-ink text-page" : "border-border bg-surface text-ink-2 hover:bg-surface-2",
-              )}
+              className={chipClass(active)}
             >
               {formatHours(hours)}
             </button>
@@ -66,6 +72,8 @@ export function JobLengthPicker({ value, onChange }: { value: number; onChange: 
 
 export interface DeadlineFieldProps {
   value: Date;
+  /** Start of the forecast's first hour; the presets are wall-clock times after it. */
+  forecastStart: Date;
   /** Earliest deadline that leaves room for the job. */
   min: Date;
   /** End of the forecast. */
@@ -74,32 +82,63 @@ export interface DeadlineFieldProps {
   onChange: (localValue: string | null) => void;
 }
 
-/** "Must finish by" picker. Empty or reset means "end of the forecast". */
-export function DeadlineField({ value, min, max, isCustom, onChange }: DeadlineFieldProps) {
+/** "Must finish by": any time in the forecast, a preset, or a custom date and time. */
+export function DeadlineField({ value, forecastStart, min, max, isCustom, onChange }: DeadlineFieldProps) {
+  // Stays open while someone types a custom time, even if it passes through a preset's value.
+  const [customOpen, setCustomOpen] = useState(false);
+  const presets = deadlinePresets(forecastStart);
+  const activePreset = isCustom ? presets.find((p) => p.time.getTime() === value.getTime()) : undefined;
+  const showCustom = customOpen || (isCustom && !activePreset);
+
+  function pick(localValue: string | null) {
+    setCustomOpen(false);
+    onChange(localValue);
+  }
+
   return (
-    <div>
-      <label htmlFor="deadline" className={fieldLabel}>
-        Must finish by
-      </label>
+    <fieldset>
+      <legend className={fieldLabel}>Must finish by</legend>
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <input
-          id="deadline"
-          type="datetime-local"
-          step={3600}
-          min={toDateTimeLocal(min)}
-          max={toDateTimeLocal(max)}
-          value={toDateTimeLocal(value)}
-          onChange={(e) => onChange(e.target.value || null)}
-          className={cn(inputClass, "min-w-0 flex-1")}
-        />
-        {isCustom && (
-          <button type="button" onClick={() => onChange(null)} className="text-sm text-ink-2 underline underline-offset-4 hover:text-ink">
-            Reset
-          </button>
+        <button type="button" aria-pressed={!isCustom && !showCustom} onClick={() => pick(null)} className={chipClass(!isCustom && !showCustom)}>
+          Any time
+        </button>
+        {presets.map(({ label, time }) => {
+          const fits = time >= min && time <= max;
+          const active = !showCustom && activePreset?.label === label;
+          return (
+            <button
+              key={label}
+              type="button"
+              aria-pressed={active}
+              disabled={!fits}
+              title={fits ? formatDayTime(time) : "Too soon for this job"}
+              onClick={() => pick(toDateTimeLocal(time))}
+              className={chipClass(active)}
+            >
+              {label}
+            </button>
+          );
+        })}
+        <button type="button" aria-pressed={showCustom} onClick={() => setCustomOpen(true)} className={chipClass(showCustom)}>
+          Custom
+        </button>
+        {showCustom && (
+          <label>
+            <span className="sr-only">Custom deadline</span>
+            <input
+              type="datetime-local"
+              step={3600}
+              min={toDateTimeLocal(min)}
+              max={toDateTimeLocal(max)}
+              value={toDateTimeLocal(value)}
+              onChange={(e) => onChange(e.target.value || null)}
+              className={inputClass}
+            />
+          </label>
         )}
       </div>
       <p className="mt-1.5 text-xs text-muted">Forecast runs until {formatDayTime(max)}.</p>
-    </div>
+    </fieldset>
   );
 }
 

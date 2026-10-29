@@ -4,12 +4,10 @@ import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { SampleDataBadge } from "@/components/dashboard/status";
 import { Card } from "@/components/ui/card";
-import { getApiClient } from "@/lib/api/client";
 import { SYNTHETIC_SOURCE } from "@/lib/api/types";
-import { forecastEnd } from "@/lib/carbon";
 import { DEFAULT_JOB_HOURS, DEFAULT_REGION, FORECAST_HORIZON_HOURS } from "@/lib/config";
 import { formatHours, formatIntensity, formatPct, formatRange } from "@/lib/format";
-import { useQuery } from "@/lib/hooks/use-query";
+import { useDefaultForecast } from "@/lib/hooks/use-default-forecast";
 import { findRegion } from "@/lib/regions";
 import { MiniForecast } from "./mini-forecast";
 
@@ -17,12 +15,8 @@ const regionName = findRegion(DEFAULT_REGION)?.shortName ?? DEFAULT_REGION;
 
 /** Hero card with the current forecast for the default region, so the landing page leads with real output. */
 export function LiveForecastCard() {
-  const forecast = useQuery({ region: DEFAULT_REGION }, (request, signal) => getApiClient().getForecast(request.region, signal));
+  const { forecast, windows } = useDefaultForecast();
   const points = forecast.data?.points;
-  const windows = useQuery(
-    points ? { region: DEFAULT_REGION, durationHours: DEFAULT_JOB_HOURS, deadline: new Date(forecastEnd(points)).toISOString() } : null,
-    (request, signal) => getApiClient().getWindows(request, signal),
-  );
   const best = windows.data?.windows[0];
 
   let content;

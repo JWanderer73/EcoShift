@@ -3,7 +3,7 @@
 
 import { HOUR_MS } from "@/lib/config";
 
-interface ZoneOption {
+export interface ZoneOption {
   timeZone?: string;
 }
 
@@ -32,6 +32,17 @@ export function formatDayTime(time: Date, zone: ZoneOption = {}): string {
 export function formatRange(start: Date, end: Date, zone: ZoneOption = {}): string {
   const sameDay = formatWeekday(start, zone) === formatWeekday(end, zone) && end.getTime() - start.getTime() < 24 * HOUR_MS;
   return `${formatDayTime(start, zone)} – ${sameDay ? formatClock(end, zone) : formatDayTime(end, zone)}`;
+}
+
+/** Weekday and 24-hour time like "Thu 14:00", the format the carbon CLI prints. */
+export function formatCliTime(time: Date, zone: ZoneOption = {}): string {
+  const { weekday, hour, minute } = parts(time, { weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }, zone);
+  return `${weekday} ${hour}:${minute}`;
+}
+
+/** Short time zone name like "PDT". */
+export function formatZoneName(time: Date, zone: ZoneOption = {}): string {
+  return parts(time, { timeZoneName: "short" }, zone).timeZoneName;
 }
 
 /** Elapsed time like "just now", "14 min ago", "3 h ago", or "2 days ago". */
