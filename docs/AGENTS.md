@@ -171,6 +171,7 @@ downloaded first, etc.]
   - `notebooks/05_days_that_break.ipynb` — the hours and days where the day-ahead ridge is wrong
 - The first run caches `data/processed/hourly_model_panel.csv`. Later runs read the cache. Shared code is `src/carbon_data.py` and `src/modeling.py`.
 - Cleaned weather plus carbon counts: `python -m src.build_cleaned_dataset` writes `data/processed/cleaned_weather_carbon.csv` (10,000 hourly rows). Weather columns are the Open-Meteo fields from the weather branch. `carbon_intensity_g_per_kwh` and the `*_mwh` fuel columns are the CAISO carbon counts. Fuel megawatthours stay out of forecast inputs.
+- XGBoost timing run: `python -m src.xgb_benchmark`. It fits 10,000 trees on the day-ahead columns, prints fit time, and scores the last 28 days with MAE and MSE. It reads `cleaned_weather_carbon.csv` when that file exists, otherwise `hourly_model_panel.csv`.
 - Location test table: `notebooks/Data3.ipynb` fetches a 3-year daily CAISO and weather sample and writes `data/processed/location_strain_cost.csv` (about 1000 rows). Targets are `grid_strain_mwh` and `cost_cents_per_kwh`. Fuel mix, demand, interchange, sales, and revenue are not columns.
 - [Any other entry point: a Streamlit app, a FastAPI server, a training
   script — give the exact command.]
