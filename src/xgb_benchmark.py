@@ -1,148 +1,70 @@
-"""Time an XGBoost forecast of CAISO carbon intensity and score the holdout.
+"""XGBoost on hourly CAISO carbon intensity.
 
-The fit reads ``data/processed/cleaned_weather_carbon.csv`` when that
-10,000-hour table is present, and the cached hourly panel otherwise.
-Fuel megawatthours are not features. The last 28 days are scored once.
-``N_ESTIMATORS`` is 10,000 so the timed fit is the 10,000-tree run.
-Holdout error is reported as MAE (gCO₂/kWh) and MSE.
+Read this file from top to bottom:
+
+1. Load the cleaned CSV and cut it: first 60% trains, last 40% tests.
+2. Try a small grid of tree settings. The search only uses the training hours.
+3. Fit the winner once and print how long that took, plus test MAE and MSE.
+
+An earlier version fit 10,000 trees with the settings fixed in advance.
+This version searches, because the question now is which settings are
+worth the time.
+
+Run it on its own:
+
+    python -m src.xgb_benchmark
 """
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
+from xgboost import XGBRegressor
 
-from src.carbon_data import PANEL_COLUMNS, cache_path, model_frame, repo_root
-from src.modeling import (
-    DAY_AHEAD_CATEGORICAL,
-    DAY_AHEAD_NUMERIC,
-    TARGET,
-    feature_matrix,
-    score_predictions,
-    train_test_split,
-)
+from src.forecast_data import print_score, print_split, search_and_score, train_test_hours
 
-N_ESTIMATORS = 10_000
-MAX_DEPTH = 6
-LEARNING_RATE = 0.08
+# Each candidate is trained three times inside the training block.
+# 2 x 2 x 2 = 8 candidates.
+PARAM_GRID = {
+    "n_estimators": [100, 300],
+    "max_depth": [4, 8],
+    "learning_rate": [0.05, 0.1],
+}
 
 
-def cleaned_csv_path() -> Path:
-    """Path of the 10,000-hour weather and carbon table."""
-    return repo_root() / "data" / "processed" / "cleaned_weather_carbon.csv"
-
-
-def panel_path() -> Path:
-    """Prefer the cleaned 10,000-hour table, then the cached hourly panel."""
-    cleaned = cleaned_csv_path()
-    if cleaned.exists():
-        return cleaned
-    return cache_path()
-
-
-def load_panel(path: Path | None = None) -> pd.DataFrame:
-    """Read an hourly table and keep the columns the forecast is allowed to start from.
-
-    Fuel megawatthour columns in the cleaned export are dropped here.
-
-    Args:
-        path: CSV to read. Defaults to ``panel_path``.
-
-    Returns:
-        Observations indexed by UTC hour, with ``PANEL_COLUMNS`` only.
-    """
-    path = panel_path() if path is None else path
-    frame = pd.read_csv(path, index_col=0, parse_dates=True)
-    frame.index = pd.to_datetime(frame.index, utc=True)
-    missing = [column for column in PANEL_COLUMNS if column not in frame.columns]
-    if missing:
-        raise ValueError(f"{path.name} is missing columns: {missing}")
-    return frame.loc[:, PANEL_COLUMNS].sort_index()
-
-
-def _matrix(frame: pd.DataFrame) -> pd.DataFrame:
-    """Day-ahead inputs. Hour and weekday stay integers the trees can split on."""
-    matrix = feature_matrix(frame, DAY_AHEAD_CATEGORICAL, DAY_AHEAD_NUMERIC).copy()
-    for column in DAY_AHEAD_CATEGORICAL:
-        matrix[column] = matrix[column].astype(int)
-    return matrix
-
-
-def fit_xgb(train: pd.DataFrame, n_estimators: int = N_ESTIMATORS):
-    """Fit XGBoost on the day-ahead columns.
-
-    Args:
-        train: Modeling table, including the target.
-        n_estimators: Number of trees. The timed run uses 10,000.
-
-    Returns:
-        The fitted model and the fit time in seconds.
-    """
-    from xgboost import XGBRegressor
-
-    model = XGBRegressor(
-        n_estimators=n_estimators,
-        max_depth=MAX_DEPTH,
-        learning_rate=LEARNING_RATE,
+def make_model() -> XGBRegressor:
+    """One XGBoost regressor. The grid above replaces the three tuned numbers."""
+    return XGBRegressor(
         objective="reg:squarederror",
         tree_method="hist",
         n_jobs=-1,
         random_state=0,
         verbosity=0,
     )
-    started = time.perf_counter()
-    model.fit(_matrix(train), train[TARGET])
-    return model, time.perf_counter() - started
 
 
-def predict_xgb(model, frame: pd.DataFrame) -> np.ndarray:
-    """Predict with a model from ``fit_xgb``, clipping intensity at zero."""
-    return np.maximum(model.predict(_matrix(frame)), 0.0)
-
-
-def run(n_estimators: int = N_ESTIMATORS, path: Path | None = None) -> dict[str, float | int | str]:
-    """Fit on the training block and score the last 28 days.
+def run(path: Path | None = None, param_grid: dict | None = None) -> dict:
+    """Search, refit the winner, and return the test scores.
 
     Args:
-        n_estimators: Trees in the timed fit.
-        path: Hourly CSV. Defaults to the cleaned table, then the cached panel.
-
-    Returns:
-        File, row counts, fit seconds, and holdout MAE and MSE.
+        path: CSV to read. Defaults to the cleaned 10,000-hour table.
+        param_grid: Settings to try. Tests pass a one-row grid so they stay fast.
     """
-    path = panel_path() if path is None else path
-    frame = model_frame(load_panel(path))
-    train, test = train_test_split(frame)
-    model, elapsed = fit_xgb(train, n_estimators=n_estimators)
-    predicted = predict_xgb(model, test)
-    scores = score_predictions(test[TARGET], predicted)
-    residual = test[TARGET].to_numpy(dtype=float) - predicted
-    return {
-        "path": str(path),
-        "rows": int(len(frame)),
-        "train_rows": int(len(train)),
-        "test_rows": int(len(test)),
-        "n_estimators": int(n_estimators),
-        "fit_seconds": float(elapsed),
-        "mae": scores["mae"],
-        "mse": float(np.mean(np.square(residual))),
-    }
+    train, test = train_test_hours(path)
+    print_split(train, test)
+    result = search_and_score(
+        "XGBoost",
+        make_model(),
+        PARAM_GRID if param_grid is None else param_grid,
+        train,
+        test,
+    )
+    print_score(result)
+    return result
 
 
 def main() -> None:
-    """Print how long the 10,000-tree fit took and the holdout error."""
-    result = run()
-    print(f"file: {result['path']}")
-    print(f"rows: {result['rows']}")
-    print(f"train rows: {result['train_rows']}")
-    print(f"test rows: {result['test_rows']}")
-    print(f"trees: {result['n_estimators']}")
-    print(f"fit seconds: {result['fit_seconds']:.2f}")
-    print(f"holdout MAE g/kWh: {result['mae']:.3f}")
-    print(f"holdout MSE: {result['mse']:.3f}")
+    run()
 
 
 if __name__ == "__main__":

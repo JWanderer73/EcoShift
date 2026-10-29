@@ -1,10 +1,11 @@
-"""Checks that the XGBoost benchmark ignores fuel columns and returns finite error."""
+"""The 60/40 cut is in time order, and fuel columns never become features."""
 
 import numpy as np
 import pandas as pd
 
 from src.carbon_data import PANEL_COLUMNS
-from src.xgb_benchmark import load_panel, run
+from src.forecast_data import TRAIN_FRACTION, load_hours, train_test_hours
+from src.xgb_benchmark import run
 
 
 def _hourly_table(periods: int) -> pd.DataFrame:
@@ -16,19 +17,28 @@ def _hourly_table(periods: int) -> pd.DataFrame:
     return frame
 
 
-def test_load_panel_drops_fuel_columns(tmp_path) -> None:
+def test_load_hours_drops_fuel_columns(tmp_path) -> None:
     path = tmp_path / "panel.csv"
     _hourly_table(24 * 40).to_csv(path)
-    loaded = load_panel(path)
+    loaded = load_hours(path)
     assert list(loaded.columns) == PANEL_COLUMNS
     assert "ng_mwh" not in loaded.columns
+
+
+def test_split_is_the_first_sixty_percent(tmp_path) -> None:
+    path = tmp_path / "panel.csv"
+    _hourly_table(24 * 80).to_csv(path)
+    train, test = train_test_hours(path)
+    assert len(train) == int((len(train) + len(test)) * TRAIN_FRACTION)
+    assert train.index.max() < test.index.min()
+    assert TRAIN_FRACTION == 0.60
 
 
 def test_short_xgb_fit_returns_finite_holdout_error(tmp_path) -> None:
     path = tmp_path / "panel.csv"
     _hourly_table(24 * 80).to_csv(path)
-    result = run(n_estimators=20, path=path)
-    assert result["n_estimators"] == 20
+    result = run(path=path, param_grid={"n_estimators": [20], "max_depth": [2], "learning_rate": [0.1]})
+    assert result["train_rows"] == int((result["train_rows"] + result["test_rows"]) * 0.60)
     assert result["fit_seconds"] >= 0.0
     assert np.isfinite(result["mae"])
     assert np.isfinite(result["mse"])

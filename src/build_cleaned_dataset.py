@@ -1,17 +1,27 @@
-"""Build one cleaned hourly table of weather and CAISO carbon.
+"""How ``data/processed/cleaned_weather_carbon.csv`` gets built.
 
-Weather columns are the Open-Meteo fields that were fetched and checked on
-the weather branch: UTC hourly timestamps, numeric values, duplicate hours
-removed. They are pulled for the five California cities the carbon models
-already use, so San Diego keeps the full cleaned variable list and the
-other cities are on the same clock.
+There are two hourly CSVs. They are not the same file.
 
-Carbon intensity uses the fuel-mix formula in ``carbon_data``. The fuel
-megawatthour columns are the counts behind that number. They stay in this
-export because it is a dataset, not a training matrix. Forecast code still
-refuses them as model inputs.
+- ``cleaned_weather_carbon.csv`` is this script. It is the latest 10,000
+  hours that have both weather and carbon. It keeps the fuel megawatthours
+  and the weather for each city, because it is a dataset.
+- ``hourly_model_panel.csv`` is the shorter cache the notebooks use. That
+  one is built by ``src/carbon_data.py`` and does not store the fuel columns.
 
-The file keeps the latest 10,000 hours that have both weather and carbon.
+This script does five steps:
+
+1. Download hourly weather for five California cities from Open-Meteo.
+2. Download hourly CAISO fuel mix and demand from EIA. This needs
+   ``EIA_API_KEY`` in ``.env``.
+3. Turn the fuel mix into carbon intensity, in grams of CO2 per kWh.
+4. Join weather to carbon and drop any hour that is missing either one.
+5. Keep the latest 10,000 complete hours and write the CSV.
+
+The model scripts do not train on the fuel columns. Those columns are how
+the carbon number was calculated. Seeing them would let a model copy the
+formula instead of forecasting it.
+
+    python -m src.build_cleaned_dataset
 """
 
 from __future__ import annotations
@@ -31,7 +41,7 @@ from src.carbon_data import (
     repo_root,
 )
 
-# Same hourly fields as the cleaned Open-Meteo pull.
+# One row per hour, for every city. These are the Open-Meteo field names.
 WEATHER_VARS = [
     "temperature_2m",
     "relative_humidity_2m",
@@ -45,11 +55,14 @@ WEATHER_VARS = [
     "is_day",
 ]
 
-# Wide enough that dropped hours still leave 10,000 complete rows.
+# The download window is wider than 10,000 hours on purpose. Hours that
+# fail to join get dropped, and we still want 10,000 complete rows left.
 START_DATE = "2025-08-01"
 END_DATE = "2026-10-20"
 TARGET_ROWS = 10_000
 
+# EIA fuel code -> column name in the CSV. These are the counts behind
+# the carbon number. They are saved. They are not model inputs.
 FUEL_COLUMNS = {
     "NG": "ng_mwh",
     "COL": "coal_mwh",
@@ -65,7 +78,13 @@ OUTPUT = repo_root() / "data" / "processed" / "cleaned_weather_carbon.csv"
 
 
 def _weather() -> pd.DataFrame:
-    """Hourly weather, one column set per city, cleaned the same way as the saved pull."""
+    """Download one hourly weather table per city and line them up on the hour.
+
+    Each city gets the same fields, with the city name prefixed on the column
+    (``fresno_temperature_2m``). Duplicate hours are collapsed. A city-hour
+    that is missing any weather field is dropped, so the join later does not
+    have to guess.
+    """
     frames = []
     for city, latitude, longitude in CITIES:
         payload = _get_json(
@@ -100,7 +119,14 @@ def _weather() -> pd.DataFrame:
 
 
 def _carbon() -> pd.DataFrame:
-    """CAISO fuel counts, carbon intensity, demand, and the day-ahead demand forecast."""
+    """Download CAISO generation and demand, then compute carbon intensity.
+
+    EIA returns one row per fuel per hour. Those rows are pivoted so each
+    hour is one row and each fuel is a column. Carbon intensity is
+    emissions divided by generation, using the same factors as the notebooks.
+    Demand (``D``) and the day-ahead demand forecast (``DF``) come from a
+    second EIA table and are attached to the same hours.
+    """
     start = f"{START_DATE}T00"
     end = f"{END_DATE}T23"
     fuel = _eia_pages(
@@ -139,7 +165,6 @@ def _carbon() -> pd.DataFrame:
             counts[name] = pd.to_numeric(wide_fuel[code], errors="coerce").fillna(0.0).clip(lower=0.0)
         else:
             counts[name] = 0.0
-    # Intensity uses the same fuels and the same clipping as the carbon models.
     counts.insert(0, "carbon_intensity_g_per_kwh", carbon_intensity(wide_fuel))
     counts["demand_mwh"] = wide_region["D"]
     counts["demand_forecast_mwh"] = wide_region["DF"]
@@ -147,7 +172,12 @@ def _carbon() -> pd.DataFrame:
 
 
 def _aggregates(weather: pd.DataFrame) -> pd.DataFrame:
-    """Five-city means the carbon models already train on, plus Fresno sunlight alone."""
+    """Average the five cities into the columns the forecast models use.
+
+    Temperature, sunlight, and wind are the mean of the five cities.
+    Fresno sunlight is also kept on its own, because it tracks CAISO solar
+    more closely than the coastal cities do.
+    """
     temp = weather[[f"{city}_temperature_2m" for city, _, _ in CITIES]].mean(axis=1)
     radiation = weather[[f"{city}_shortwave_radiation" for city, _, _ in CITIES]].mean(axis=1)
     wind = weather[[f"{city}_wind_speed_10m" for city, _, _ in CITIES]].mean(axis=1)
@@ -163,12 +193,14 @@ def _aggregates(weather: pd.DataFrame) -> pd.DataFrame:
 
 
 def build() -> pd.DataFrame:
-    """Join cleaned weather to carbon counts and keep the latest complete hours."""
+    """Run the five steps above and return the latest 10,000 complete hours."""
     load_dotenv(repo_root() / ".env")
     if not os.getenv("EIA_API_KEY"):
         raise RuntimeError("EIA_API_KEY is missing from .env")
+
     weather = _weather()
     carbon = _carbon()
+    # Inner join: an hour survives only when weather and carbon both have it.
     frame = carbon.join(_aggregates(weather), how="inner").join(weather, how="inner")
     frame = frame.dropna(subset=["carbon_intensity_g_per_kwh", "demand_mwh", "demand_forecast_mwh"])
     frame = frame.sort_index()
@@ -180,6 +212,7 @@ def build() -> pd.DataFrame:
 
 
 def main() -> None:
+    """Build the table and write ``data/processed/cleaned_weather_carbon.csv``."""
     frame = build()
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(OUTPUT)
