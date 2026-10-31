@@ -1,0 +1,27 @@
+# Local stack: no AWS needed. State lives in ./.local (shared by all services).
+#
+#   docker compose up --build                  # API on :8000, dashboard on :8501
+#   docker compose run --rm pipeline           # seed or refresh forecasts
+services:
+  api:
+    build: .
+    ports: ["8000:8000"]
+    environment: &local
+      CARBON_STORE: local
+      CARBON_LOCAL_DIR: /app/.local
+    volumes: ["./.local:/app/.local"]
+
+  dashboard:
+    build: .
+    command: ["streamlit", "run", "dashboard/app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    ports: ["8501:8501"]
+    environment:
+      API_URL: http://api:8000
+    depends_on: [api]
+
+  pipeline:
+    build: .
+    command: ["python", "-m", "carbon.jobs.pipeline"]
+    environment: *local
+    volumes: ["./.local:/app/.local"]
+    profiles: ["jobs"]

@@ -1,37 +1,16 @@
-# Python
+.local/
 __pycache__/
-*.py[cod]
-*.pyo
-*.pyd
 *.egg-info/
 .venv/
-venv/
-
-# Jupyter
-.ipynb_checkpoints/
-
-# Environment and secrets
-.env
-.env.local
-.env.*
-!.env.example
-
-# Data and generated artifacts
-data/*
-!data/README.md
-!data/raw/.gitkeep
-!data/processed/.gitkeep
-results/*
-!results/.gitkeep
-models/*
-!models/.gitkeep
-
-# OS/editor files
-.DS_Store
-.vscode/
-.idea/
-
-# Test and coverage outputs
 .pytest_cache/
-.coverage
-htmlcov/
+.env
+dist/
+build/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+crash.log
+# keep .terraform.lock.hcl committed

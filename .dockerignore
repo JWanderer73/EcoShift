@@ -1,0 +1,9 @@
+.git
+.local
+.venv
+infra
+tests
+docs
+fixtures
+__pycache__
+*.egg-info

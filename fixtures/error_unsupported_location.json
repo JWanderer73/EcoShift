@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "unsupported_location",
+    "message": "'nowhere' is not available. Available: demo-region"
+  }
+}
