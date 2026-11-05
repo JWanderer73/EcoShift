@@ -8,6 +8,8 @@ drops those features. ``alpha`` is how hard it pushes coefficients to zero.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from sklearn.linear_model import Lasso
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -27,11 +29,11 @@ def make_model() -> Pipeline:
     ])
 
 
-def run() -> dict:
-    """Search alpha on the first 60% of hours and score the last 40%."""
-    train, test = train_test_hours()
+def run(path: Path | None = None, param_grid: dict | None = None) -> dict:
+    """Search alpha on the training hours and score the last 56 days."""
+    train, test = train_test_hours(path)
     print_split(train, test)
-    result = search_and_score("Lasso", make_model(), PARAM_GRID, train, test)
+    result = search_and_score("Lasso", make_model(), PARAM_GRID if param_grid is None else param_grid, train, test)
     print_score(result)
     return result
 

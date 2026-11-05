@@ -13,6 +13,8 @@ on average error.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from lightgbm import LGBMRegressor
 
 from src.forecast_data import print_score, print_split, search_and_score, train_test_hours
@@ -34,11 +36,11 @@ def make_model() -> LGBMRegressor:
     )
 
 
-def run() -> dict:
+def run(path: Path | None = None, param_grid: dict | None = None) -> dict:
     """Search the boosting settings on the training hours, then score the test hours."""
-    train, test = train_test_hours()
+    train, test = train_test_hours(path)
     print_split(train, test)
-    result = search_and_score("LightGBM", make_model(), PARAM_GRID, train, test)
+    result = search_and_score("LightGBM", make_model(), PARAM_GRID if param_grid is None else param_grid, train, test)
     print_score(result)
     return result
 

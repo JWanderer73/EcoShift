@@ -1,202 +1,199 @@
 """Shared data for the model scripts.
 
-The question is: how many megawatthours of electricity will CAISO use
+The question is: how many megawatthours of electricity will CAISO serve
 this hour?
 
-The file is ``data/processed/cleaned_weather_carbon.csv``. Carbon
-intensity is not the target. It is computed from the fuel columns in
-that same file, so predicting it is rebuilding a column. This file has
-no hourly electricity price. The electricity measurement it does have
-is ``demand_mwh``.
+The table is ``data/processed/demand_dataset.csv``, built by
+``python -m src.build_demand_dataset``. Its ``.meta.json`` lists the
+features. The audit in ``src/column_audit.py`` already removed the
+columns that restate demand (the fuel mix and carbon), exact copies,
+and near-duplicates.
 
 Every model does the same three things:
 
-1. Read that cleaned CSV.
-2. Train on the first 60% of hours. Test on the last 40%.
+1. Read that table and its feature list.
+2. Train on every hour before the last 56 days. Test on the last 56 days.
 3. Score the test hours once. The grid search never sees those hours.
 
-The split is in time order. Later hours are not used to fit the model.
+The test block is late summer into fall 2026. Training includes late
+summer 2025 and all of summer 2026, so the models have seen peak demand
+before they are scored on it.
 
-What the model is allowed to see, before the hour happens:
-
-- the time of day and the time of year
-- electricity use at this hour yesterday and last week
-- yesterday's weather
-- the demand forecast CAISO already published for this hour
-
-What it is not allowed to see:
-
-- this hour's demand (that is the answer)
-- the fuel megawatthours
-- carbon intensity
+``benchmark_caiso_forecast_mwh`` is CAISO's own day-ahead forecast. It is
+scored beside the models as the number to beat, and it is never a feature.
 """
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 
+import joblib
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
 
+from src.build_demand_dataset import BENCHMARK, DEFAULT_VARIANT, meta_path, output_path
 from src.carbon_data import repo_root
+from src.column_audit import DROPPED
 
 # The electricity we are forecasting, in megawatthours.
 TARGET = "demand_mwh"
 TARGET_UNIT = "MWh"
 
-# First 60% trains. Last 40% is the test.
-TRAIN_FRACTION = 0.60
+# The last 56 days are the test block. Eight weeks covers every weekday
+# eight times and the end of the summer peak.
+TEST_DAYS = 56
 
 # Forward folds inside the training block.
 CV_SPLITS = 3
 
-# Taken straight from the cleaned CSV. Fuel and carbon are not in this list.
-RAW_COLUMNS = [
-    "demand_mwh",
-    "demand_forecast_mwh",
-    "temp",
-    "radiation",
-    "radiation_fresno",
-    "wind_10m",
-]
-
-# Built from past hours, plus the forecast CAISO published ahead of time.
-FEATURE_COLUMNS = [
-    "hour_sin",
-    "hour_cos",
-    "dow_sin",
-    "dow_cos",
-    "doy_sin",
-    "doy_cos",
-    "demand_lag_24",
-    "demand_lag_168",
-    "temp_lag_24",
-    "radiation_lag_24",
-    "radiation_fresno_lag_24",
-    "wind_10m_lag_24",
-    "demand_forecast_mwh",
-]
+# Baselines scored beside the models: a column of the test block that is
+# already a forecast of demand.
+BASELINES = {
+    "Same hour yesterday": "demand_lag_24",
+    "Same hour last week": "demand_lag_168",
+    "CAISO forecast": BENCHMARK,
+}
 
 
-def cleaned_csv_path() -> Path:
-    """The 10,000-hour cleaned table."""
-    return repo_root() / "data" / "processed" / "cleaned_weather_carbon.csv"
-
-
-def data_path() -> Path:
-    """The cleaned CSV. The comparison does not fall back to another file."""
-    path = cleaned_csv_path()
+def data_path(variant: str = DEFAULT_VARIANT) -> Path:
+    """The demand dataset for a variant. The comparison does not fall back to another file."""
+    path = output_path(variant)
     if not path.exists():
-        raise FileNotFoundError(
-            f"{path} is missing. Build it with: python -m src.build_cleaned_dataset"
-        )
+        raise FileNotFoundError(f"{path} is missing. Build it with: python -m src.build_demand_dataset")
     return path
 
 
-def load_hours(path: Path | None = None) -> pd.DataFrame:
-    """Read the cleaned CSV and keep demand, the demand forecast, and weather.
+def load_dataset(path: Path | None = None) -> pd.DataFrame:
+    """Read a demand dataset and attach its metadata.
 
     Args:
-        path: CSV to read. Defaults to the cleaned table.
+        path: CSV to read. Defaults to the honest variant.
 
     Returns:
-        Hourly rows indexed in UTC. Fuel columns and carbon intensity are omitted.
+        Hourly rows indexed in UTC. ``attrs`` holds the feature list, the
+        variant, the content hash, and the file it came from.
     """
     path = data_path() if path is None else path
+    meta = json.loads(meta_path(path).read_text())
     frame = pd.read_csv(path, index_col=0, parse_dates=True)
     frame.index = pd.to_datetime(frame.index, utc=True)
-    missing = [column for column in RAW_COLUMNS if column not in frame.columns]
+    missing = [column for column in [TARGET, BENCHMARK, *meta["features"]] if column not in frame.columns]
     if missing:
         raise ValueError(f"{path.name} is missing columns: {missing}")
-    hours = frame.loc[:, RAW_COLUMNS].sort_index()
-    hours.attrs["source_path"] = str(path)
-    hours.attrs["csv_rows"] = int(len(frame))
-    return hours
+    frame = frame.sort_index()
+    frame.attrs.update(
+        {
+            "source_path": str(path),
+            "features": list(meta["features"]),
+            "variant": meta["variant"],
+            "content_hash": meta["content_hash"],
+            "model_dir": str(_model_dir(path, meta["variant"])),
+        }
+    )
+    return frame
 
 
-def modeling_table(path: Path | None = None) -> pd.DataFrame:
-    """Add the clock and yesterday / last week, then drop hours that lack them.
-
-    The first 168 hours fall away because last week's demand is not known yet.
-    A missing hour does not shorten a lag: the lag is taken on a complete
-    hourly clock.
-    """
-    hours = load_hours(path)
-    frame = hours[~hours.index.duplicated(keep="last")].sort_index()
-    full_index = pd.date_range(frame.index.min(), frame.index.max(), freq="h", tz="UTC")
-    frame = frame.reindex(full_index)
-    local = frame.index.tz_convert("America/Los_Angeles")
-    hour = local.hour.to_numpy()
-    dow = local.dayofweek.to_numpy()
-    day_of_year = local.dayofyear.to_numpy()
-    frame["hour_sin"] = np.sin(2 * np.pi * hour / 24)
-    frame["hour_cos"] = np.cos(2 * np.pi * hour / 24)
-    frame["dow_sin"] = np.sin(2 * np.pi * dow / 7)
-    frame["dow_cos"] = np.cos(2 * np.pi * dow / 7)
-    frame["doy_sin"] = np.sin(2 * np.pi * day_of_year / 365.25)
-    frame["doy_cos"] = np.cos(2 * np.pi * day_of_year / 365.25)
-    frame["demand_lag_24"] = frame[TARGET].shift(24)
-    frame["demand_lag_168"] = frame[TARGET].shift(168)
-    frame["temp_lag_24"] = frame["temp"].shift(24)
-    frame["radiation_lag_24"] = frame["radiation"].shift(24)
-    frame["radiation_fresno_lag_24"] = frame["radiation_fresno"].shift(24)
-    frame["wind_10m_lag_24"] = frame["wind_10m"].shift(24)
-    keep = [TARGET, *FEATURE_COLUMNS]
-    table = frame.dropna(subset=keep).loc[:, keep]
-    table.attrs["source_path"] = hours.attrs["source_path"]
-    table.attrs["csv_rows"] = hours.attrs["csv_rows"]
-    return table
+def _model_dir(path: Path, variant: str) -> Path:
+    """Saved models go in ``models/`` for the repo's own datasets, and beside any other file."""
+    if path.resolve() == output_path(variant).resolve():
+        root = repo_root() / "models"
+        return root if variant == DEFAULT_VARIANT else root / variant
+    return path.parent / "models"
 
 
-def train_test_hours(path: Path | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Cut the table at 60%.
+def feature_columns(path: Path | None = None) -> list[str]:
+    """The feature list from the dataset's metadata."""
+    path = data_path() if path is None else path
+    return list(json.loads(meta_path(path).read_text())["features"])
+
+
+def train_test_hours(path: Path | None = None, test_days: int = TEST_DAYS) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Cut off the last ``test_days`` days as the test block.
 
     Returns:
         Training rows, then test rows. Training ends before the test starts.
     """
-    table = modeling_table(path)
-    cut = int(len(table) * TRAIN_FRACTION)
-    train = table.iloc[:cut].copy()
-    test = table.iloc[cut:].copy()
+    table = load_dataset(path)
+    cutoff = table.index.max() - pd.Timedelta(days=test_days)
+    train = table.loc[table.index <= cutoff].copy()
+    test = table.loc[table.index > cutoff].copy()
     if train.empty or test.empty:
-        raise ValueError("the 60/40 split produced an empty side")
+        raise ValueError("the time split produced an empty side")
     if train.index.max() >= test.index.min():
         raise ValueError("training hours overlap the test hours")
     for side in (train, test):
-        side.attrs["source_path"] = table.attrs["source_path"]
-        side.attrs["csv_rows"] = table.attrs["csv_rows"]
+        side.attrs.update(table.attrs)
         side.attrs["model_rows"] = int(len(table))
     return train, test
 
 
 def features(frame: pd.DataFrame) -> pd.DataFrame:
-    """The columns the model sees. The demand target is not one of them."""
-    if TARGET in FEATURE_COLUMNS:
-        raise ValueError("the model is being shown the electricity use it is supposed to predict")
-    return frame.loc[:, FEATURE_COLUMNS].astype(float)
+    """The columns the model sees, from the dataset's metadata.
+
+    Raises if the list includes the target, the CAISO benchmark, or any
+    column the audit dropped.
+    """
+    columns = frame.attrs["features"]
+    banned = sorted(set(columns) & ({TARGET, BENCHMARK} | set(DROPPED)))
+    if banned:
+        raise ValueError(f"features include columns that restate demand: {banned}")
+    return frame.loc[:, columns].astype(float)
+
+
+def score(actual, predicted) -> dict[str, float]:
+    """MAE, RMSE, and MSE in megawatthours, and MAPE in percent."""
+    actual = np.asarray(actual, dtype=float)
+    predicted = np.asarray(predicted, dtype=float)
+    residual = actual - predicted
+    return {
+        "mae": float(np.mean(np.abs(residual))),
+        "mape": float(100.0 * np.mean(np.abs(residual) / np.abs(actual))),
+        "rmse": float(np.sqrt(np.mean(np.square(residual)))),
+        "mse": float(np.mean(np.square(residual))),
+    }
+
+
+def baseline_rows(test: pd.DataFrame) -> list[dict]:
+    """Score the baselines on the test block. Nothing is fit."""
+    rows = []
+    for name, column in BASELINES.items():
+        if column not in test.columns:
+            continue
+        pair = test[[TARGET, column]].dropna()
+        if pair.empty:
+            continue
+        rows.append(
+            {
+                "model": name,
+                "kind": "baseline",
+                "target": TARGET,
+                "unit": TARGET_UNIT,
+                "variant": test.attrs.get("variant"),
+                "dataset_hash": test.attrs.get("content_hash"),
+                **score(pair[TARGET], pair[column]),
+                "test_rows": int(len(pair)),
+                "test_start": str(pair.index.min()),
+            }
+        )
+    return rows
 
 
 def print_split(train: pd.DataFrame, test: pd.DataFrame) -> None:
     """Print the cut and the error of simply trusting CAISO's own forecast."""
     total = len(train) + len(test)
-    forecast_error = np.abs(test[TARGET] - test["demand_forecast_mwh"])
     print(f"target: {TARGET} ({TARGET_UNIT})")
-    print(f"file: {train.attrs.get('source_path', '')}")
-    print(f"csv rows: {train.attrs.get('csv_rows', '')}")
-    print(f"rows after lags: {train.attrs.get('model_rows', total)}")
-    print(
-        f"TRAIN {TRAIN_FRACTION:.0%}: {len(train)} hours, "
-        f"{train.index.min()} -> {train.index.max()}"
-    )
-    print(
-        f"TEST  {1 - TRAIN_FRACTION:.0%}: {len(test)} hours, "
-        f"{test.index.min()} -> {test.index.max()}"
-    )
-    print(f"CAISO forecast alone, test MAE: {float(forecast_error.mean()):.1f} {TARGET_UNIT}")
+    print(f"file: {train.attrs.get('source_path', '')} (variant {train.attrs.get('variant', '')})")
+    print(f"rows: {train.attrs.get('model_rows', total)}, features: {len(train.attrs.get('features', []))}")
+    print(f"TRAIN: {len(train)} hours, {train.index.min()} -> {train.index.max()}")
+    print(f"TEST:  {len(test)} hours, {test.index.min()} -> {test.index.max()}")
+    comparable = test[[TARGET, BENCHMARK]].dropna()
+    caiso = score(comparable[TARGET], comparable[BENCHMARK])
+    print(f"CAISO forecast alone, test MAE: {caiso['mae']:.1f} {TARGET_UNIT} ({caiso['mape']:.2f}%)")
 
 
 def _plain(value):
@@ -210,13 +207,18 @@ def _plain(value):
     return value
 
 
+def model_slug(name: str) -> str:
+    """File name for a saved model: ``Hist gradient boosting`` becomes ``hist_gradient_boosting``."""
+    return name.lower().replace(" ", "_")
+
+
 def search_and_score(name: str, estimator, param_grid: dict, train: pd.DataFrame, test: pd.DataFrame) -> dict:
     """Pick settings on the training hours, then score the test hours once.
 
     The grid search walks forward through the training block. It does not
     look at the test block. After a winner is chosen, that winner is fit
-    again on all of the training hours. ``fit_seconds`` is that one fit.
-    ``search_seconds`` is the whole grid search.
+    again on all of the training hours and saved with joblib.
+    ``fit_seconds`` is that one fit. ``search_seconds`` is the whole grid search.
 
     An empty ``param_grid`` means the model has nothing to tune. It is fit once.
     """
@@ -232,43 +234,57 @@ def search_and_score(name: str, estimator, param_grid: dict, train: pd.DataFrame
             cv=TimeSeriesSplit(n_splits=CV_SPLITS),
             scoring="neg_mean_absolute_error",
             n_jobs=1,
-            refit=True,
+            refit=False,
         )
         started = time.perf_counter()
         search.fit(x_train, y_train)
         search_seconds = time.perf_counter() - started
-        chosen = search.best_estimator_
+        chosen = clone(estimator).set_params(**search.best_params_)
         best_params = _plain(search.best_params_)
         cv_mae = float(-search.best_score_)
     else:
-        started = time.perf_counter()
-        estimator.fit(x_train, y_train)
-        search_seconds = time.perf_counter() - started
-        chosen = estimator
+        chosen = clone(estimator)
         best_params = {}
-        cv_mae = None
+        search_seconds = 0.0
+        folds = []
+        for fit_index, valid_index in TimeSeriesSplit(n_splits=CV_SPLITS).split(x_train):
+            fold = clone(estimator).fit(x_train.iloc[fit_index], y_train.iloc[fit_index])
+            folds.append(mean_absolute_error(y_train.iloc[valid_index], np.maximum(fold.predict(x_train.iloc[valid_index]), 0.0)))
+        cv_mae = float(np.mean(folds))
 
-    fresh = clone(chosen)
     started = time.perf_counter()
-    fresh.fit(x_train, y_train)
+    chosen.fit(x_train, y_train)
     fit_seconds = time.perf_counter() - started
-    predicted = np.maximum(fresh.predict(x_test), 0.0)
-    actual = y_test.to_numpy(dtype=float)
-    residual = actual - predicted
+    started = time.perf_counter()
+    predicted = np.maximum(chosen.predict(x_test), 0.0)
+    predict_seconds = time.perf_counter() - started
+    train_mae = float(mean_absolute_error(y_train, np.maximum(chosen.predict(x_train), 0.0)))
+
+    model_dir = Path(train.attrs["model_dir"])
+    model_dir.mkdir(parents=True, exist_ok=True)
+    model_path = model_dir / f"{model_slug(name)}.joblib"
+    joblib.dump(chosen, model_path)
+
     return {
         "model": name,
+        "kind": "model",
         "target": TARGET,
         "unit": TARGET_UNIT,
+        "variant": train.attrs.get("variant"),
+        "dataset_hash": train.attrs.get("content_hash"),
         "best_params": best_params,
+        "train_mae": train_mae,
         "cv_mae": cv_mae,
-        "mae": float(mean_absolute_error(actual, predicted)),
-        "mse": float(np.mean(np.square(residual))),
+        **score(y_test, predicted),
         "fit_seconds": float(fit_seconds),
         "search_seconds": float(search_seconds),
+        "predict_seconds": float(predict_seconds),
+        "n_features": int(x_train.shape[1]),
         "train_rows": int(len(train)),
         "test_rows": int(len(test)),
         "train_end": str(train.index.max()),
         "test_start": str(test.index.min()),
+        "model_path": str(model_path),
     }
 
 
@@ -281,9 +297,9 @@ def print_score(result: dict) -> None:
         print(f"  best settings: {settings}")
     else:
         print("  best settings: none (nothing to tune)")
-    if result["cv_mae"] is not None:
-        print(f"  training-block MAE: {result['cv_mae']:.1f} {unit}")
+    print(f"  training MAE: {result['train_mae']:.1f} {unit}")
+    print(f"  forward-fold MAE: {result['cv_mae']:.1f} {unit}")
     print(f"  fit: {result['fit_seconds']:.3f} s")
     print(f"  grid search: {result['search_seconds']:.3f} s")
-    print(f"  test MAE: {result['mae']:.1f} {unit}")
-    print(f"  test MSE: {result['mse']:.1f}")
+    print(f"  test MAE: {result['mae']:.1f} {unit} ({result['mape']:.2f}%)")
+    print(f"  test RMSE: {result['rmse']:.1f} {unit}")

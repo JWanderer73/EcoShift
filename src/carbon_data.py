@@ -252,6 +252,9 @@ def _eia_pages(route: str, params: list) -> pd.DataFrame:
             break
         time.sleep(0.15)
     frame = pd.DataFrame(rows)
+    if frame.empty:
+        print(f"{route}: 0 rows (api total {total})")
+        return frame
     frame["value"] = pd.to_numeric(frame["value"], errors="coerce")
     print(f"{route}: {len(frame)} rows (api total {total})")
     return frame

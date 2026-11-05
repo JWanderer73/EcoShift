@@ -2,9 +2,9 @@
 
 Read this file from top to bottom:
 
-1. Load the cleaned CSV and cut it: first 60% trains, last 40% tests.
+1. Load the demand dataset and cut it: the last 56 days are the test block.
 2. Try a small grid of tree settings. The search only uses the training hours.
-3. Fit the winner once and print how long that took, plus test MAE and MSE.
+3. Fit the winner once, save it, and print how long that took, plus test MAE and MAPE.
 
 An earlier version fit 10,000 trees with the settings fixed in advance.
 This version searches, because the question now is which settings are
@@ -47,7 +47,7 @@ def run(path: Path | None = None, param_grid: dict | None = None) -> dict:
     """Search, refit the winner, and return the test scores.
 
     Args:
-        path: CSV to read. Defaults to the cleaned 10,000-hour table.
+        path: CSV to read. Defaults to the honest demand dataset.
         param_grid: Settings to try. Tests pass a one-row grid so they stay fast.
     """
     train, test = train_test_hours(path)
