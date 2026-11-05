@@ -1,0 +1,32 @@
+{
+  "model": "XGBoost optuna",
+  "target": "demand_mwh",
+  "unit": "MWh",
+  "variant": "honest",
+  "dataset_hash": "c6be4a510b1761c8",
+  "sampler": "optuna TPE",
+  "trials": 44,
+  "pruned_trials": 0,
+  "best_params": {
+    "objective": "reg:absoluteerror",
+    "max_depth": 8,
+    "learning_rate": 0.017220844958265594,
+    "n_estimators": 945,
+    "min_child_weight": 3.040971047426402,
+    "subsample": 0.6826321372640178,
+    "colsample_bytree": 0.9097058686868043,
+    "reg_lambda": 1.7982538224993578,
+    "reg_alpha": 0.4940417110547169,
+    "gamma": 1.1128272893407725
+  },
+  "cv_mae": 776.4680393638458,
+  "mae": 1130.9391566685267,
+  "mape": 3.7308660354772325,
+  "rmse": 1580.5941015765666,
+  "mse": 2498277.7139386334,
+  "fit_seconds": 9.39843904099996,
+  "search_seconds": 615.4136972910001,
+  "train_rows": 67167,
+  "test_rows": 1344,
+  "model_path": "/Users/kareha/Desktop/EcoShift/models/xgboost_optuna.joblib"
+}
