@@ -1,0 +1,121 @@
+{
+  "machine": "macOS-26.6-arm64-arm-64bit",
+  "processor": "arm",
+  "history_rows": 67167,
+  "history_years": 7.662217659137577,
+  "repeats": 5,
+  "retrain": [
+    {
+      "rows": 17532,
+      "years": 2.0,
+      "fit_seconds": {
+        "mean": 5.7221271498,
+        "std": 0.21762565786352553,
+        "min": 5.530422083000001,
+        "max": 6.074276457999998,
+        "n": 5
+      },
+      "cpu_seconds": {
+        "mean": 21.116748000000005,
+        "std": 0.5716196937986859,
+        "min": 20.514767,
+        "max": 22.014409000000008,
+        "n": 5
+      },
+      "peak_mb": 352.436224
+    },
+    {
+      "rows": 35064,
+      "years": 4.0,
+      "fit_seconds": {
+        "mean": 7.2549520666000005,
+        "std": 0.4886873549657439,
+        "min": 6.813003708000004,
+        "max": 8.057933540999997,
+        "n": 5
+      },
+      "cpu_seconds": {
+        "mean": 25.99666000000001,
+        "std": 1.1924570386653377,
+        "min": 24.941467000000017,
+        "max": 28.031796000000014,
+        "n": 5
+      },
+      "peak_mb": 445.104128
+    },
+    {
+      "rows": 52596,
+      "years": 6.0,
+      "fit_seconds": {
+        "mean": 8.482516274799996,
+        "std": 0.07359059851832045,
+        "min": 8.413920165999997,
+        "max": 8.591383124999993,
+        "n": 5
+      },
+      "cpu_seconds": {
+        "mean": 30.409188999999998,
+        "std": 0.1522789393120474,
+        "min": 30.243392,
+        "max": 30.595641999999998,
+        "n": 5
+      },
+      "peak_mb": 535.953408
+    },
+    {
+      "rows": 67167,
+      "years": 7.662217659137577,
+      "fit_seconds": {
+        "mean": 9.699193358000006,
+        "std": 0.19540827924405413,
+        "min": 9.506628417000016,
+        "max": 9.982876457999993,
+        "n": 5
+      },
+      "cpu_seconds": {
+        "mean": 34.29335339999999,
+        "std": 0.31844262483733893,
+        "min": 34.11526599999996,
+        "max": 34.85967899999997,
+        "n": 5
+      },
+      "peak_mb": 554.76224
+    }
+  ],
+  "projected_retrain": [
+    {
+      "rows": 87660,
+      "years": 10.0,
+      "fit_seconds": 11.312926842348556
+    },
+    {
+      "rows": 131490,
+      "years": 15.0,
+      "fit_seconds": 14.77764051761464
+    }
+  ],
+  "predict": {
+    "one_hour_ms": {
+      "mean": 3.2773921799991967,
+      "std": 0.24614093459687117,
+      "min": 3.0498749999878783,
+      "max": 6.1866250000264245,
+      "n": 300
+    },
+    "forecast_48h_ms": 5.616250000002765,
+    "test_block_rows": 1344,
+    "test_block_ms": 8.701083999994808
+  },
+  "update": {
+    "load_model_ms": 11.293875000006892,
+    "load_and_forecast_48h_ms": 16.234625000009828,
+    "weekly_retrain_seconds": 9.699193358000006
+  },
+  "notes": [
+    "Fit time is wall-clock seconds for one training run of the saved settings.",
+    "10 and 15 year figures extend the measured line. EIA hourly CAISO demand starts in 2019, so those lengths are not on disk.",
+    "Prediction time does not grow with years of history. The model is already trained.",
+    "Peak memory is the process high-water mark, not the model's own size.",
+    "CPU package wattage was not read. macOS only exposes it through powermetrics, which asks for an admin password."
+  ]
+}
