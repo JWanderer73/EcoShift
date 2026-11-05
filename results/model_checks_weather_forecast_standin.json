@@ -1,0 +1,232 @@
+{
+  "variant": "weather_forecast_standin",
+  "dataset_hash": "7ce97c44e2e7e03e",
+  "beats_baselines": {
+    "best_model": "LightGBM",
+    "best_mae": 1461.9717074708942,
+    "baseline_mae": {
+      "Same hour yesterday": 1814.1755952380952,
+      "Same hour last week": 4895.537202380952
+    },
+    "skill_vs_caiso": 0.42527448706433024,
+    "skill_vs_yesterday": 0.19413991054210888,
+    "passed": true
+  },
+  "overfit": {
+    "models": [
+      {
+        "model": "Linear regression",
+        "train_mae": 998.5484261288299,
+        "cv_mae": 1786.631532472723,
+        "test_mae": 1863.4508469135794,
+        "test_over_cv": 1.0429967304643601,
+        "flagged": false
+      },
+      {
+        "model": "Ridge",
+        "train_mae": 1042.335222952699,
+        "cv_mae": 1576.8306693805944,
+        "test_mae": 2107.2179723152394,
+        "test_over_cv": 1.3363628785473776,
+        "flagged": false
+      },
+      {
+        "model": "Lasso",
+        "train_mae": 997.3790973315332,
+        "cv_mae": 1774.267764063167,
+        "test_mae": 1881.154987072234,
+        "test_over_cv": 1.0602430056917054,
+        "flagged": false
+      },
+      {
+        "model": "Elastic net",
+        "train_mae": 1090.6867665860293,
+        "cv_mae": 1741.28706018721,
+        "test_mae": 2188.978175465484,
+        "test_over_cv": 1.2571035675359246,
+        "flagged": false
+      },
+      {
+        "model": "Random forest",
+        "train_mae": 388.3733434186299,
+        "cv_mae": 1055.9889800595215,
+        "test_mae": 1682.064217692312,
+        "test_over_cv": 1.5928804650949115,
+        "flagged": true
+      },
+      {
+        "model": "Extra trees",
+        "train_mae": 335.23551219633686,
+        "cv_mae": 1105.2596660208662,
+        "test_mae": 1641.0955973066896,
+        "test_over_cv": 1.484805469482958,
+        "flagged": false
+      },
+      {
+        "model": "Hist gradient boosting",
+        "train_mae": 349.8006536761856,
+        "cv_mae": 1026.9282053795366,
+        "test_mae": 1493.5627924364276,
+        "test_over_cv": 1.4543984522115936,
+        "flagged": false
+      },
+      {
+        "model": "XGBoost",
+        "train_mae": 127.9258094077654,
+        "cv_mae": 1058.2993866926836,
+        "test_mae": 1626.4974699474517,
+        "test_over_cv": 1.5368972999506854,
+        "flagged": true
+      },
+      {
+        "model": "LightGBM",
+        "train_mae": 228.86409800414563,
+        "cv_mae": 1020.0902928113464,
+        "test_mae": 1461.9717074708942,
+        "test_over_cv": 1.4331787271906413,
+        "flagged": false
+      }
+    ],
+    "warning": true
+  },
+  "shuffled_target": {
+    "shuffled_mae": 5289.699199858166,
+    "predict_mean_mae": 5508.570529916511,
+    "ratio": 0.9602671275842478,
+    "passed": true
+  },
+  "importance": {
+    "xgboost_gain": {
+      "demand_lag_24": 0.6276,
+      "demand_lag_168": 0.1576,
+      "dow_cos": 0.0587,
+      "dow_sin": 0.0187,
+      "fresno_temperature_2m": 0.013,
+      "is_holiday": 0.0102,
+      "sun_shortwave_mean": 0.0068,
+      "san_diego_precipitation": 0.0067,
+      "san_diego_temperature_2m": 0.006,
+      "sun_diffuse_mean": 0.006
+    },
+    "permutation_model": "LightGBM",
+    "permutation": {
+      "demand_lag_24": 0.6558,
+      "fresno_temperature_2m": 0.1085,
+      "dow_sin": 0.0618,
+      "demand_lag_168": 0.0499,
+      "san_diego_temperature_2m": 0.041,
+      "dow_cos": 0.0272,
+      "los_angeles_temperature_2m": 0.023,
+      "hour_cos": 0.0068,
+      "hour_sin": 0.0053,
+      "san_francisco_temperature_2m": 0.0033
+    },
+    "top_share": 0.6557593374330446,
+    "warning": true
+  },
+  "slices": {
+    "mae_by_local_hour": {
+      "LightGBM": {
+        "0": 1086.8,
+        "1": 1072.0,
+        "2": 1045.9,
+        "3": 1006.6,
+        "4": 1026.7,
+        "5": 831.5,
+        "6": 842.4,
+        "7": 809.2,
+        "8": 973.4,
+        "9": 1439.4,
+        "10": 1787.8,
+        "11": 1804.4,
+        "12": 1728.5,
+        "13": 1769.4,
+        "14": 1791.4,
+        "15": 2007.9,
+        "16": 2287.6,
+        "17": 2268.2,
+        "18": 2250.5,
+        "19": 1974.7,
+        "20": 1620.0,
+        "21": 1441.5,
+        "22": 1195.0,
+        "23": 1026.7
+      },
+      "Same hour yesterday": {
+        "0": 1241.1,
+        "1": 1125.2,
+        "2": 1032.9,
+        "3": 983.3,
+        "4": 1050.4,
+        "5": 1007.0,
+        "6": 1101.3,
+        "7": 1435.9,
+        "8": 1698.1,
+        "9": 2128.6,
+        "10": 2325.5,
+        "11": 2151.5,
+        "12": 2260.6,
+        "13": 2378.0,
+        "14": 2348.8,
+        "15": 2674.1,
+        "16": 2749.1,
+        "17": 2612.2,
+        "18": 2427.1,
+        "19": 2174.8,
+        "20": 1882.3,
+        "21": 1738.5,
+        "22": 1603.2,
+        "23": 1410.8
+      },
+      "CAISO forecast": {
+        "0": 658.7,
+        "1": 497.9,
+        "2": 526.8,
+        "3": 740.9,
+        "4": 994.3,
+        "5": 879.9,
+        "6": 591.1,
+        "7": 516.4,
+        "8": 1075.1,
+        "9": 4428.0,
+        "10": 6972.6,
+        "11": 7752.8,
+        "12": 7997.7,
+        "13": 7274.8,
+        "14": 5934.9,
+        "15": 4404.3,
+        "16": 2732.7,
+        "17": 1723.7,
+        "18": 1008.1,
+        "19": 961.6,
+        "20": 946.7,
+        "21": 873.2,
+        "22": 820.9,
+        "23": 737.3
+      }
+    },
+    "hot_days": [
+      "2026-09-09",
+      "2026-09-10",
+      "2026-10-03",
+      "2026-10-04",
+      "2026-10-05",
+      "2026-10-06"
+    ],
+    "hot_day_mae": {
+      "LightGBM": {
+        "hot_mae": 3053.171299994526,
+        "other_mae": 1271.0277563680584
+      },
+      "Same hour yesterday": {
+        "hot_mae": 1934.111111111111,
+        "other_mae": 1799.7833333333333
+      },
+      "CAISO forecast": {
+        "hot_mae": 2817.4166666666665,
+        "other_mae": 2510.9366666666665
+      }
+    }
+  },
+  "passed": true
+}

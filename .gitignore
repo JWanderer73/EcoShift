@@ -24,9 +24,6 @@ data/*
 data/processed/*
 !data/processed/.gitkeep
 !data/processed/cleaned_weather_carbon.csv
-results/*
-!results/.gitkeep
-!results/xgb_optuna.json
 models/*
 !models/.gitkeep
 !models/xgboost_optuna.joblib
