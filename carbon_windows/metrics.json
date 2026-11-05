@@ -1,0 +1,58 @@
+{
+  "target": "carbon_intensity_g_per_kwh",
+  "unit": "gCO2/kWh",
+  "location": "CISO",
+  "trials": 40,
+  "best_params": {
+    "objective": "reg:squarederror",
+    "max_depth": 7,
+    "learning_rate": 0.01188319784812149,
+    "n_estimators": 395,
+    "min_child_weight": 10.672404641833266,
+    "subsample": 0.8234665652666739,
+    "colsample_bytree": 0.6171806044681919,
+    "reg_lambda": 2.374402117025504,
+    "reg_alpha": 4.43796648791711e-06,
+    "gamma": 1.943721005934808
+  },
+  "cv_mae_g_per_kwh": 17.682420130234718,
+  "search_seconds": 183.70398333300002,
+  "train_rows": 66773,
+  "test_rows": 1319,
+  "train_end": "2026-09-09 23:00:00+00:00",
+  "test_start": "2026-09-10 00:00:00+00:00",
+  "train": {
+    "mae_g_per_kwh": 14.48537433209902,
+    "rmse_g_per_kwh": 19.304311868451187,
+    "percent_error_mean": 10.376749362202876,
+    "percent_error_median": 6.572433751745876
+  },
+  "test": {
+    "mae_g_per_kwh": 18.86662471706203,
+    "rmse_g_per_kwh": 24.410602451436716,
+    "percent_error_mean": 15.92029795001454,
+    "percent_error_median": 8.855207222161706
+  },
+  "test_regret_4h_g_per_kwh": 1.632395452268422,
+  "baselines_test": [
+    {
+      "name": "same hour yesterday",
+      "mae_g_per_kwh": 27.549480772150407,
+      "rmse_g_per_kwh": 34.72765376825584,
+      "percent_error_mean": 22.27510443921182,
+      "percent_error_median": 14.51367765578509
+    },
+    {
+      "name": "hour of day mean",
+      "mae_g_per_kwh": 45.61248687175969,
+      "rmse_g_per_kwh": 53.501012387562476,
+      "percent_error_mean": 46.55018769387091,
+      "percent_error_median": 20.688724452863852
+    }
+  ],
+  "baseline_regret_4h_g_per_kwh": {
+    "same hour yesterday": 2.1223009769100334,
+    "hour of day mean": 1.7147985715718943
+  },
+  "model_path": "/Users/kareha/Desktop/EcoShift/carbon_windows/model.joblib"
+}

@@ -28,6 +28,11 @@ models/*
 !models/.gitkeep
 !models/xgboost_optuna.joblib
 
+# Carbon window artifacts. Rebuild with the commands in carbon_windows/README.md.
+carbon_windows/*.csv
+carbon_windows/*.joblib
+carbon_windows/cache/
+
 # OS/editor files
 .DS_Store
 .vscode/
