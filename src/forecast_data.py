@@ -1,17 +1,34 @@
 """Shared data for the model scripts.
 
-Every model file does the same three things before it fits:
+The question is: how many megawatthours of electricity will CAISO use
+this hour?
 
-1. Read ``data/processed/cleaned_weather_carbon.csv``.
-2. Keep the first 60% of hours for training and the last 40% for testing.
+The file is ``data/processed/cleaned_weather_carbon.csv``. Carbon
+intensity is not the target. It is computed from the fuel columns in
+that same file, so predicting it is rebuilding a column. This file has
+no hourly electricity price. The electricity measurement it does have
+is ``demand_mwh``.
+
+Every model does the same three things:
+
+1. Read that cleaned CSV.
+2. Train on the first 60% of hours. Test on the last 40%.
 3. Score the test hours once. The grid search never sees those hours.
 
-The split is in time order. Shuffling would let a model train on Tuesday
-and then be scored on Monday of the same week.
+The split is in time order. Later hours are not used to fit the model.
 
-Fuel megawatthour columns stay in the CSV, but they are not features.
-They are the ingredients of ``carbon_intensity_g_per_kwh``. A model that
-saw them would be copying that formula.
+What the model is allowed to see, before the hour happens:
+
+- the time of day and the time of year
+- electricity use at this hour yesterday and last week
+- yesterday's weather
+- the demand forecast CAISO already published for this hour
+
+What it is not allowed to see:
+
+- this hour's demand (that is the answer)
+- the fuel megawatthours
+- carbon intensity
 """
 
 from __future__ import annotations
@@ -25,64 +42,111 @@ from sklearn.base import clone
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
 
-from src.carbon_data import PANEL_COLUMNS, cache_path, model_frame, repo_root
-from src.modeling import CYCLICAL_NUMERIC, TARGET, check_features
+from src.carbon_data import repo_root
 
-# First 60% trains. Last 40% is the test. This is the only split the
-# comparison scripts use. The notebooks still hold out their own last 28 days.
+# The electricity we are forecasting, in megawatthours.
+TARGET = "demand_mwh"
+TARGET_UNIT = "MWh"
+
+# First 60% trains. Last 40% is the test.
 TRAIN_FRACTION = 0.60
 
-# Forward folds inside the training block. Three is enough to pick a setting
-# without spending the whole run on cross-validation.
+# Forward folds inside the training block.
 CV_SPLITS = 3
 
-# Things a forecast can know the day before the hour it is predicting:
-# time of day, time of year, carbon at this hour yesterday and last week,
-# yesterday's weather, and the demand forecast CAISO already published.
-FEATURE_COLUMNS = list(CYCLICAL_NUMERIC)
+# Taken straight from the cleaned CSV. Fuel and carbon are not in this list.
+RAW_COLUMNS = [
+    "demand_mwh",
+    "demand_forecast_mwh",
+    "temp",
+    "radiation",
+    "radiation_fresno",
+    "wind_10m",
+]
+
+# Built from past hours, plus the forecast CAISO published ahead of time.
+FEATURE_COLUMNS = [
+    "hour_sin",
+    "hour_cos",
+    "dow_sin",
+    "dow_cos",
+    "doy_sin",
+    "doy_cos",
+    "demand_lag_24",
+    "demand_lag_168",
+    "temp_lag_24",
+    "radiation_lag_24",
+    "radiation_fresno_lag_24",
+    "wind_10m_lag_24",
+    "demand_forecast_mwh",
+]
 
 
 def cleaned_csv_path() -> Path:
-    """The 10,000-hour weather and carbon table."""
+    """The 10,000-hour cleaned table."""
     return repo_root() / "data" / "processed" / "cleaned_weather_carbon.csv"
 
 
 def data_path() -> Path:
-    """Use the cleaned 10,000-hour file, or the shorter notebook cache if it is missing."""
-    cleaned = cleaned_csv_path()
-    if cleaned.exists():
-        return cleaned
-    return cache_path()
+    """The cleaned CSV. The comparison does not fall back to another file."""
+    path = cleaned_csv_path()
+    if not path.exists():
+        raise FileNotFoundError(
+            f"{path} is missing. Build it with: python -m src.build_cleaned_dataset"
+        )
+    return path
 
 
 def load_hours(path: Path | None = None) -> pd.DataFrame:
-    """Read the CSV and keep only the columns a forecast is allowed to start from.
+    """Read the cleaned CSV and keep demand, the demand forecast, and weather.
 
     Args:
         path: CSV to read. Defaults to the cleaned table.
 
     Returns:
-        Hourly rows indexed in UTC. Fuel columns are not included.
+        Hourly rows indexed in UTC. Fuel columns and carbon intensity are omitted.
     """
     path = data_path() if path is None else path
     frame = pd.read_csv(path, index_col=0, parse_dates=True)
     frame.index = pd.to_datetime(frame.index, utc=True)
-    missing = [column for column in PANEL_COLUMNS if column not in frame.columns]
+    missing = [column for column in RAW_COLUMNS if column not in frame.columns]
     if missing:
         raise ValueError(f"{path.name} is missing columns: {missing}")
-    hours = frame.loc[:, PANEL_COLUMNS].sort_index()
+    hours = frame.loc[:, RAW_COLUMNS].sort_index()
     hours.attrs["source_path"] = str(path)
     hours.attrs["csv_rows"] = int(len(frame))
     return hours
 
 
 def modeling_table(path: Path | None = None) -> pd.DataFrame:
-    """Add the clock and the yesterday / last-week columns, then drop incomplete hours.
+    """Add the clock and yesterday / last week, then drop hours that lack them.
 
-    The first 168 hours fall away because last week's carbon is not known yet.
+    The first 168 hours fall away because last week's demand is not known yet.
+    A missing hour does not shorten a lag: the lag is taken on a complete
+    hourly clock.
     """
     hours = load_hours(path)
-    table = model_frame(hours)
+    frame = hours[~hours.index.duplicated(keep="last")].sort_index()
+    full_index = pd.date_range(frame.index.min(), frame.index.max(), freq="h", tz="UTC")
+    frame = frame.reindex(full_index)
+    local = frame.index.tz_convert("America/Los_Angeles")
+    hour = local.hour.to_numpy()
+    dow = local.dayofweek.to_numpy()
+    day_of_year = local.dayofyear.to_numpy()
+    frame["hour_sin"] = np.sin(2 * np.pi * hour / 24)
+    frame["hour_cos"] = np.cos(2 * np.pi * hour / 24)
+    frame["dow_sin"] = np.sin(2 * np.pi * dow / 7)
+    frame["dow_cos"] = np.cos(2 * np.pi * dow / 7)
+    frame["doy_sin"] = np.sin(2 * np.pi * day_of_year / 365.25)
+    frame["doy_cos"] = np.cos(2 * np.pi * day_of_year / 365.25)
+    frame["demand_lag_24"] = frame[TARGET].shift(24)
+    frame["demand_lag_168"] = frame[TARGET].shift(168)
+    frame["temp_lag_24"] = frame["temp"].shift(24)
+    frame["radiation_lag_24"] = frame["radiation"].shift(24)
+    frame["radiation_fresno_lag_24"] = frame["radiation_fresno"].shift(24)
+    frame["wind_10m_lag_24"] = frame["wind_10m"].shift(24)
+    keep = [TARGET, *FEATURE_COLUMNS]
+    table = frame.dropna(subset=keep).loc[:, keep]
     table.attrs["source_path"] = hours.attrs["source_path"]
     table.attrs["csv_rows"] = hours.attrs["csv_rows"]
     return table
@@ -110,14 +174,17 @@ def train_test_hours(path: Path | None = None) -> tuple[pd.DataFrame, pd.DataFra
 
 
 def features(frame: pd.DataFrame) -> pd.DataFrame:
-    """The columns the model actually sees, in a fixed order."""
-    check_features(FEATURE_COLUMNS)
+    """The columns the model sees. The demand target is not one of them."""
+    if TARGET in FEATURE_COLUMNS:
+        raise ValueError("the model is being shown the electricity use it is supposed to predict")
     return frame.loc[:, FEATURE_COLUMNS].astype(float)
 
 
 def print_split(train: pd.DataFrame, test: pd.DataFrame) -> None:
-    """Print the cut so it is obvious which hours were trained on."""
+    """Print the cut and the error of simply trusting CAISO's own forecast."""
     total = len(train) + len(test)
+    forecast_error = np.abs(test[TARGET] - test["demand_forecast_mwh"])
+    print(f"target: {TARGET} ({TARGET_UNIT})")
     print(f"file: {train.attrs.get('source_path', '')}")
     print(f"csv rows: {train.attrs.get('csv_rows', '')}")
     print(f"rows after lags: {train.attrs.get('model_rows', total)}")
@@ -129,6 +196,7 @@ def print_split(train: pd.DataFrame, test: pd.DataFrame) -> None:
         f"TEST  {1 - TRAIN_FRACTION:.0%}: {len(test)} hours, "
         f"{test.index.min()} -> {test.index.max()}"
     )
+    print(f"CAISO forecast alone, test MAE: {float(forecast_error.mean()):.1f} {TARGET_UNIT}")
 
 
 def _plain(value):
@@ -180,8 +248,6 @@ def search_and_score(name: str, estimator, param_grid: dict, train: pd.DataFrame
         best_params = {}
         cv_mae = None
 
-    # Time one clean fit of the winning settings. The search time above
-    # includes every candidate, so it is not the training speed of the model.
     fresh = clone(chosen)
     started = time.perf_counter()
     fresh.fit(x_train, y_train)
@@ -191,6 +257,8 @@ def search_and_score(name: str, estimator, param_grid: dict, train: pd.DataFrame
     residual = actual - predicted
     return {
         "model": name,
+        "target": TARGET,
+        "unit": TARGET_UNIT,
         "best_params": best_params,
         "cv_mae": cv_mae,
         "mae": float(mean_absolute_error(actual, predicted)),
@@ -206,6 +274,7 @@ def search_and_score(name: str, estimator, param_grid: dict, train: pd.DataFrame
 
 def print_score(result: dict) -> None:
     """Print the winning settings, how long the fit took, and the test error."""
+    unit = result.get("unit", TARGET_UNIT)
     print(result["model"])
     if result["best_params"]:
         settings = ", ".join(f"{key}={value}" for key, value in result["best_params"].items())
@@ -213,8 +282,8 @@ def print_score(result: dict) -> None:
     else:
         print("  best settings: none (nothing to tune)")
     if result["cv_mae"] is not None:
-        print(f"  training-block MAE: {result['cv_mae']:.3f} g/kWh")
+        print(f"  training-block MAE: {result['cv_mae']:.1f} {unit}")
     print(f"  fit: {result['fit_seconds']:.3f} s")
     print(f"  grid search: {result['search_seconds']:.3f} s")
-    print(f"  test MAE: {result['mae']:.3f} g/kWh")
-    print(f"  test MSE: {result['mse']:.3f}")
+    print(f"  test MAE: {result['mae']:.1f} {unit}")
+    print(f"  test MSE: {result['mse']:.1f}")

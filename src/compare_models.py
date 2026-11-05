@@ -1,7 +1,8 @@
 """Fit every model on the same 60/40 cut and write one comparison table.
 
-The models are the ones that keep showing up for hourly carbon intensity
-and hourly electricity load:
+The target is hourly CAISO electricity demand, in megawatthours, from
+``cleaned_weather_carbon.csv``. The models are the ones that keep showing
+up for hourly electricity load:
 
 - linear regression, ridge, lasso, elastic net
 - random forest and extra trees

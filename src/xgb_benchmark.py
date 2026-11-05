@@ -1,4 +1,4 @@
-"""XGBoost on hourly CAISO carbon intensity.
+"""XGBoost on hourly CAISO electricity demand (megawatthours).
 
 Read this file from top to bottom:
 

@@ -1,0 +1,64 @@
+{
+  "endpoints": [
+    {
+      "id": "ollama",
+      "label": "Ollama",
+      "kind": "ollama",
+      "base": "http://127.0.0.1:11434"
+    },
+    {
+      "id": "lmstudio",
+      "label": "LM Studio",
+      "kind": "openai",
+      "base": "http://127.0.0.1:1234"
+    },
+    {
+      "id": "openai-local",
+      "label": "Local OpenAI",
+      "kind": "openai",
+      "base": "http://127.0.0.1:8080"
+    }
+  ],
+  "models": [
+    {
+      "id": "xai-grok-4-7",
+      "name": "grok-4.7",
+      "kind": "openai",
+      "base": "https://api.x.ai/v1",
+      "tier": "strong",
+      "hasKey": false,
+      "enabled": true,
+      "provider": "grok"
+    },
+    {
+      "id": "openai-gpt-4o",
+      "name": "gpt-4o",
+      "kind": "openai",
+      "base": "https://api.openai.com/v1",
+      "tier": "strong",
+      "hasKey": false,
+      "enabled": true,
+      "provider": "openai"
+    },
+    {
+      "id": "gemini-2-5-pro",
+      "name": "gemini-2.5-pro",
+      "kind": "openai",
+      "base": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "tier": "strong",
+      "hasKey": false,
+      "enabled": true,
+      "provider": "gemini"
+    },
+    {
+      "id": "openrouter-auto",
+      "name": "openrouter/auto",
+      "kind": "openai",
+      "base": "https://openrouter.ai/api/v1",
+      "tier": "strong",
+      "hasKey": false,
+      "enabled": true,
+      "provider": "openrouter"
+    }
+  ]
+}

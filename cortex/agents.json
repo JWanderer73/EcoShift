@@ -1,0 +1,41 @@
+{
+  "seeded": true,
+  "agents": [
+    {
+      "id": "m-local",
+      "name": "Local",
+      "model": "local",
+      "role": "local"
+    },
+    {
+      "id": "m-prompt",
+      "name": "Prompt",
+      "model": "local",
+      "role": "prompt"
+    },
+    {
+      "id": "m-review",
+      "name": "Review",
+      "model": "fast",
+      "role": "review"
+    },
+    {
+      "id": "m-ready",
+      "name": "Ready",
+      "model": "local",
+      "role": "ready"
+    },
+    {
+      "id": "m-test",
+      "name": "Test",
+      "model": "fast",
+      "role": "test"
+    },
+    {
+      "id": "m-strong",
+      "name": "Strong",
+      "model": "strong",
+      "role": "strong"
+    }
+  ]
+}
