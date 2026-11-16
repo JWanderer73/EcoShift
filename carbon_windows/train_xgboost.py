@@ -13,6 +13,7 @@ because a small gram error can still pick the wrong hours to run a job.
 
 from __future__ import annotations
 
+import atexit
 import argparse
 import json
 import time
@@ -217,7 +218,32 @@ def train(n_trials: int = 40, timeout: float | None = None) -> dict:
     _print(metrics)
     print(f"wrote {out}")
     print(f"wrote {model_path}")
+    _release_workers()
     return metrics
+
+
+def _release_workers() -> None:
+    """Stop leftover joblib workers before the interpreter exits.
+
+    This does not start a pool when none is running. An open pool is what
+    makes Python print ``Exception ignored`` while it shuts down.
+    """
+    try:
+        from joblib.externals.loky import reusable_executor
+    except Exception:
+        return
+    executor = getattr(reusable_executor, "_executor", None)
+    if executor is None:
+        return
+    try:
+        executor.shutdown(wait=True, kill_workers=True)
+    except TypeError:
+        try:
+            executor.shutdown(wait=True)
+        except Exception:
+            return
+    except Exception:
+        return
 
 
 def _print(metrics: dict) -> None:
@@ -245,6 +271,9 @@ def main() -> None:
     n_trials = args.trials if args.minutes is None else max(args.trials, 10_000)
     timeout = None if args.minutes is None else args.minutes * 60
     train(n_trials=n_trials, timeout=timeout)
+
+
+atexit.register(_release_workers)
 
 
 if __name__ == "__main__":

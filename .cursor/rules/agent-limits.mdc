@@ -1,0 +1,26 @@
+---
+description: Keep each agent inside its files and off work another agent already started
+alwaysApply: true
+---
+
+# Agent limits
+
+Another agent is often editing the next file. Stay in the files your task names.
+
+## Price windows
+
+- Dataset: `price_windows/schema.py`, `price_windows/build_dataset.py`, `tests/test_price_dataset.py`.
+- Training: `price_windows/train_xgboost.py`, `tests/test_price_train.py`. Import column names. Do not rewrite `schema.py`.
+- Window: `price_windows/recommend.py`, `price_windows/README.md`, the price section of `docs/AGENTS.md`, `.gitignore`, `tests/test_price_recommend.py`.
+- Acceptance: `tests/test_price_acceptance.py` checks the finished folder. Do not delete or weaken it.
+- Do not edit `carbon_windows/`, `src/`, or `models/` for a price-window task.
+- Do not start `python -m price_windows.build_dataset` if one is already running. Read `price_windows/cache/` instead of downloading again.
+- Do not run the 40-trial search to check a change. The unit tests use a small frame and one core.
+
+## Shutdown
+
+Close every `urlopen` and `ZipFile` with a `with` block. After an XGBoost fit, stop joblib workers before the process exits. An open socket or a leftover worker is what makes Python print `Exception ignored` while it shuts down.
+
+## Efficiency
+
+One edit, then stop. Do not reformat a file you do not own. Do not re-download a cached page, zip, or price file.

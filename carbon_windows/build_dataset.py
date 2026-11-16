@@ -155,9 +155,11 @@ def _oasis_chunk(start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
     request = Request(url, headers={"User-Agent": "ecoshift-carbon"})
     for attempt in range(5):
         try:
-            raw = urlopen(request, timeout=90).read()
+            with urlopen(request, timeout=90) as response:
+                raw = response.read()
             break
         except HTTPError as exc:
+            exc.close()
             if exc.code != 429 or attempt == 4:
                 raise
             time.sleep(15 * (attempt + 1))

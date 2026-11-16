@@ -33,6 +33,11 @@ carbon_windows/*.csv
 carbon_windows/*.joblib
 carbon_windows/cache/
 
+# Price window artifacts. Rebuild with the commands in price_windows/README.md.
+price_windows/price_dataset.csv
+price_windows/*.joblib
+price_windows/cache/
+
 # OS/editor files
 .DS_Store
 .vscode/
