@@ -9,6 +9,27 @@ A clean starter template for data science and machine learning projects at UC Sa
 - A .gitignore tailored for secrets, notebooks, and generated artifacts
 - A small starter package and test example
 
+## Use the `carbon` CLI
+
+`carbon` finds the lowest-emission time in the next 48 hours to run a long job.
+
+```bash
+brew install allghelierce/ecoshift/ecoshift   # macOS or Linux
+carbon windows --duration 3h                  # headline, chart and table
+carbon windows --duration 3h --json           # for coding agents
+```
+
+Without Homebrew: `pipx install git+https://github.com/JWanderer73/EcoShift.git@v0.1.0`.
+
+To teach Claude Code when to run it, install its skill (Homebrew prints this after installing):
+
+```bash
+mkdir -p ~/.claude/skills
+cp -R "$(brew --prefix)/share/ecoshift/skills/carbon-windows" ~/.claude/skills/
+```
+
+The forecasts are synthetic until the EcoShift API is deployed, and the output says so.
+
 ## Suggested repository structure
 
 ```text
