@@ -1,0 +1,62 @@
+{
+  "target": "lmp_usd_per_mwh",
+  "unit": "$/MWh",
+  "test_days": 28,
+  "percent_error_min_price_usd_per_mwh": 5.0,
+  "clipped_at_zero": false,
+  "trials": 40,
+  "pruned_trials": 4,
+  "best_params": {
+    "objective": "reg:absoluteerror",
+    "max_depth": 3,
+    "learning_rate": 0.09753641969431748,
+    "n_estimators": 262,
+    "min_child_weight": 1.6907576612170077,
+    "subsample": 0.6796854503537466,
+    "colsample_bytree": 0.7845447798914489,
+    "reg_lambda": 0.3687065272542283,
+    "reg_alpha": 9.638002129136983e-06,
+    "gamma": 3.795856649279734
+  },
+  "cv_mae_usd_per_mwh": 9.220161011164311,
+  "search_seconds": 6842.485576,
+  "train_rows": 7871292,
+  "test_rows": 668146,
+  "train_end": "2026-10-17 23:00:00+00:00",
+  "test_start": "2026-10-18 00:00:00+00:00",
+  "dataset_hash": "689474ed3891a006",
+  "train": {
+    "mae_usd_per_mwh": 5.413879883921375,
+    "rmse_usd_per_mwh": 12.840925751179602,
+    "percent_error_mean": 15.539139912407023,
+    "percent_error_median": 7.726667897990857
+  },
+  "test": {
+    "mae_usd_per_mwh": 7.373082861773663,
+    "rmse_usd_per_mwh": 10.613588133899158,
+    "percent_error_mean": 16.593229882089467,
+    "percent_error_median": 10.438262638101467
+  },
+  "test_regret_4h_usd_per_mwh": 2.1240833855092767,
+  "baselines_test": [
+    {
+      "name": "same hour last week",
+      "mae_usd_per_mwh": 9.009504319564885,
+      "rmse_usd_per_mwh": 13.17765620764127,
+      "percent_error_mean": 21.253803369546617,
+      "percent_error_median": 13.528055637954536
+    },
+    {
+      "name": "hour of week mean",
+      "mae_usd_per_mwh": 16.05573701819104,
+      "rmse_usd_per_mwh": 18.595490090800094,
+      "percent_error_mean": 31.71707032347726,
+      "percent_error_median": 30.031676598752483
+    }
+  ],
+  "baseline_regret_4h_usd_per_mwh": {
+    "same hour last week": 3.1473056263770776,
+    "hour of week mean": 2.444516065954774
+  },
+  "model_path": "/Users/kareha/Desktop/EcoShift/price_windows/model.joblib"
+}
