@@ -86,3 +86,10 @@ export function toOffsetIso(time: Date): string {
   const pad = (n: number) => String(Math.floor(Math.abs(n))).padStart(2, "0");
   return `${toDateTimeLocal(time)}${sign}${pad(offset / 60)}:${pad(offset % 60)}`;
 }
+
+const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+/** Whole US dollars, e.g. 1240.5 → "$1,241", -12 → "-$12". */
+export function formatUsd(value: number): string {
+  return usd.format(Math.round(value) + 0);
+}

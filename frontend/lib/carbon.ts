@@ -57,6 +57,35 @@ export function lastStartIndex(points: ForecastPoint[], hours: number, deadline:
 }
 
 /**
+ * Pick the lowest-scoring, non-overlapping job start times.
+ *
+ * Every start from 0 to `lastStart` is a candidate, scored by the mean of `scores` over the
+ * job's hours. Candidates are taken lowest first, skipping any that overlap one already chosen,
+ * so the results are genuinely different options rather than the same dip shifted by an hour.
+ *
+ * @param scores One value per forecast hour; lower is better.
+ * @returns Up to `top` picks, best first, with their mean score.
+ */
+export function pickWindows(scores: number[], hours: number, lastStart: number, top: number): { start: number; avg: number }[] {
+  const candidates = [];
+  for (let start = 0; start <= lastStart; start++) {
+    let total = 0;
+    for (let i = start; i < start + hours; i++) total += scores[i];
+    candidates.push({ start, avg: total / hours });
+  }
+  // Ties go to the earlier start: finishing sooner is the better of two equal options.
+  candidates.sort((a, b) => a.avg - b.avg || a.start - b.start);
+
+  const chosen: typeof candidates = [];
+  for (const candidate of candidates) {
+    if (chosen.length === top) break;
+    const overlaps = chosen.some((c) => candidate.start < c.start + hours && c.start < candidate.start + hours);
+    if (!overlaps) chosen.push(candidate);
+  }
+  return chosen;
+}
+
+/**
  * Rank the lowest-emission, non-overlapping start times for a job.
  *
  * Every whole-hour start that ends by the deadline is a candidate. Candidates are taken
@@ -75,19 +104,12 @@ export function findBestWindows(points: ForecastPoint[], hours: number, deadline
   if (lastStart < 0) return [];
 
   const baselineAvg = averageIntensity(points, 0, hours);
-  const candidates = [];
-  for (let start = 0; start <= lastStart; start++) {
-    candidates.push({ start, avg: averageIntensity(points, start, hours) });
-  }
-  // Ties go to the earlier start: finishing sooner is the better of two equal options.
-  candidates.sort((a, b) => a.avg - b.avg || a.start - b.start);
-
-  const chosen: typeof candidates = [];
-  for (const candidate of candidates) {
-    if (chosen.length === top) break;
-    const overlaps = chosen.some((c) => candidate.start < c.start + hours && c.start < candidate.start + hours);
-    if (!overlaps) chosen.push(candidate);
-  }
+  const chosen = pickWindows(
+    points.map((p) => p.intensity),
+    hours,
+    lastStart,
+    top,
+  );
 
   return chosen.map(({ start, avg }, i) => ({
     rank: i + 1,

@@ -6,7 +6,7 @@ import { expect, test } from "@playwright/test";
 test.describe("landing page", () => {
   test("leads with the live forecast and links to the dashboard", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Run heavy jobs when the grid is cleanest.");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Run heavy compute when power is cheapest and cleanest.");
     await expect(page.getByTestId("hero-headline")).toContainText(/cleaner|cleanest/);
     await expect(page.getByText("Sample data").first()).toBeVisible();
     // The CLI demo prints the same forecast as the hero card.
@@ -21,7 +21,7 @@ test.describe("landing page", () => {
 test.describe("dashboard", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/dashboard");
-    await expect(page.getByTestId("now-intensity")).toBeVisible();
+    await expect(page.getByTestId("now-value")).toBeVisible();
   });
 
   test("shows the verdict, the chart, and the top 3 windows", async ({ page }) => {
@@ -58,13 +58,36 @@ test.describe("dashboard", () => {
 
   test("the table view lists every hour", async ({ page }) => {
     await page.getByRole("button", { name: "Table" }).click();
-    await expect(page.getByRole("table").locator("tbody tr")).toHaveCount(48);
+    await expect(page.getByRole("table", { name: /^Hourly/ }).locator("tbody tr")).toHaveCount(48);
   });
 
-  test("switching region reloads the forecast", async ({ page }) => {
-    await page.getByLabel("Region").selectOption("ERCO");
-    await expect(page.getByText("Right now in Texas")).toBeVisible();
-    await expect(page.getByText("carbon windows --duration 4h --region ERCO")).toBeVisible();
+  test("switching location reloads the forecast", async ({ page }) => {
+    await page.getByLabel("Location").selectOption("databank-san2");
+    await expect(page.getByText("Right now at DataBank SAN2")).toBeVisible();
+    await expect(page.getByText("carbon windows --duration 4h --region CISO")).toBeVisible();
+  });
+
+  test("a site outside CAISO hides the CLI command", async ({ page }) => {
+    await page.getByLabel("Location").selectOption("coresite-la1");
+    await expect(page.getByText(/Right now at CoreSite LA1/)).toBeVisible();
+    await expect(page.getByText(/carbon windows --duration/)).toHaveCount(0);
+  });
+
+  test("the carbon price re-ranks windows and shows dollar savings", async ({ page }) => {
+    await expect(page.getByTestId("now-value")).toHaveText(/^-?\$/);
+    await page.getByRole("button", { name: "Price only" }).click();
+    await expect(page.getByRole("button", { name: "Price only" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByText("Wholesale power price", { exact: false })).toHaveCount(0);
+    await expect(page.getByText(/Cost with carbon at \$0\/t/).first()).toBeVisible();
+  });
+
+  test("compare data centers ranks every site and switches to the one picked", async ({ page }) => {
+    const table = page.getByRole("table", { name: "Compare data centers" });
+    await expect(table.locator("tbody tr")).toHaveCount(7);
+    await expect(page.getByTestId("compare-headline")).toContainText(/best data center/);
+    await table.getByRole("button", { name: /NTT CA1/ }).click();
+    await expect(page.getByText("Right now at NTT Sacramento CA1")).toBeVisible();
+    await expect(table.getByRole("button", { name: /NTT CA1/ })).toHaveAttribute("aria-current", "true");
   });
 
   test("a deadline preset re-ranks windows and adds the deadline to the CLI command", async ({ page }) => {
@@ -113,7 +136,7 @@ test.describe("dashboard states", () => {
 
 for (const [path, readyTestId] of [
   ["/", "hero-headline"],
-  ["/dashboard", "now-intensity"],
+  ["/dashboard", "now-value"],
 ]) {
   test(`${path} never scrolls sideways`, async ({ page }) => {
     await page.goto(path);

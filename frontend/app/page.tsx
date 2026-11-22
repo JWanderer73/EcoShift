@@ -12,17 +12,17 @@ const STEPS: { icon: LucideIcon; title: string; body: string }[] = [
   {
     icon: Database,
     title: "Ingest",
-    body: "Hourly grid data from EIA-930 and weather from Open-Meteo, checked for gaps, duplicates, and impossible values before they're joined.",
+    body: "Hourly prices for each California pricing zone, grid mix from EIA-930, and weather from Open-Meteo, checked for gaps and impossible values before they're joined.",
   },
   {
     icon: BrainCircuit,
     title: "Forecast",
-    body: `A model predicts carbon intensity ${FORECAST_HORIZON_HOURS} hours ahead. A new model only ships if its backtest error holds up against the current one.`,
+    body: `Models predict price and carbon intensity ${FORECAST_HORIZON_HOURS} hours ahead for each site. A new model only ships if its backtest error holds up against the current one.`,
   },
   {
     icon: Server,
     title: "Serve",
-    body: "A serverless API returns the lowest-emission windows. If the pipeline breaks, it keeps serving the last good forecast and says so.",
+    body: "A serverless API returns the cheapest windows with carbon priced in. If the pipeline breaks, it keeps serving the last good forecast and says so.",
   },
   {
     icon: Bot,
@@ -46,13 +46,14 @@ export default function Home() {
           <div className="bg-graph-paper mask-fade-hero pointer-events-none absolute inset-0" aria-hidden />
           <section className="relative mx-auto grid max-w-6xl gap-10 px-4 pt-12 pb-16 sm:pt-20 lg:grid-cols-[1.1fr_1fr] lg:items-center lg:pb-24">
             <div>
-              <p className="text-sm font-medium text-primary">Carbon-aware scheduling for heavy compute</p>
+              <p className="text-sm font-medium text-primary">Cost- and carbon-aware scheduling for California data centers</p>
               <h1 className="mt-3 text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
-                Run heavy jobs when the grid is cleanest.
+                Run heavy compute when power is cheapest and cleanest.
               </h1>
               <p className="mt-4 max-w-xl text-lg text-pretty text-ink-2">
-                The same job emits more or less CO₂ depending on when it runs. EcoShift forecasts grid carbon intensity{" "}
-                {FORECAST_HORIZON_HOURS} hours ahead and finds the lowest-emission window for training runs, batch jobs, and builds.
+                Power prices and grid emissions swing hour to hour and site to site. EcoShift forecasts both{" "}
+                {FORECAST_HORIZON_HOURS} hours ahead and finds the cheapest window for training runs and batch jobs, with carbon
+                priced in.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <Link href="/dashboard" className={buttonVariants({ variant: "primary", size: "lg" })}>

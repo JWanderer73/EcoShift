@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import { buildCliCommand, formatCliJson, formatCliTable } from "@/lib/cli";
-import { DEFAULT_JOB_HOURS, DEFAULT_REGION } from "@/lib/config";
+import { CLI_REGION, DEFAULT_JOB_HOURS } from "@/lib/config";
 import { useMinuteClock } from "@/lib/hooks/use-clock";
 import { useDefaultForecast } from "@/lib/hooks/use-default-forecast";
 import { cn } from "@/lib/utils";
 
-const COMMAND = buildCliCommand({ region: DEFAULT_REGION, durationHours: DEFAULT_JOB_HOURS, deadline: null });
+const COMMAND = buildCliCommand({ region: CLI_REGION, durationHours: DEFAULT_JOB_HOURS, deadline: null });
 
 const TABS = {
   table: { label: "For people", command: COMMAND },

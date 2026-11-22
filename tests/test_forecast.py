@@ -3,7 +3,7 @@ from itertools import pairwise
 
 import pytest
 
-from src.forecast import FORECAST_HOURS, REGIONS, get_forecast
+from src.forecast import FORECAST_HOURS, REGIONS, SITES, get_forecast
 
 NOW = datetime(2026, 10, 21, 14, 35, tzinfo=UTC)
 
@@ -48,3 +48,21 @@ def test_california_is_cleanest_around_midday() -> None:
 def test_unknown_region_raises() -> None:
     with pytest.raises(ValueError, match="CISO"):
         get_forecast("NOPE", NOW)
+
+
+@pytest.mark.parametrize("site", SITES)
+def test_sites_have_prices_and_their_grids_carbon(site: str) -> None:
+    forecast = get_forecast(site, NOW)
+    grid = get_forecast(SITES[site].balancing_authority, NOW)
+    assert all(point.price is not None for point in forecast.points)
+    assert [p.intensity for p in forecast.points] == [p.intensity for p in grid.points]
+
+
+def test_balancing_authorities_have_no_price() -> None:
+    assert all(point.price is None for point in get_forecast("CISO", NOW).points)
+
+
+def test_sites_on_one_grid_price_differently() -> None:
+    santa_clara = [p.price for p in get_forecast("coresite-sv7", NOW).points]
+    san_jose = [p.price for p in get_forecast("equinix-sv1", NOW).points]
+    assert santa_clara != san_jose

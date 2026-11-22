@@ -12,13 +12,18 @@ function niceStep(raw: number): number {
 }
 
 /**
- * Evenly spaced y-axis ticks from 0 that cover `max`, about `count` intervals apart.
+ * Evenly spaced y-axis ticks that cover `min` to `max`, about `count` intervals apart. Zero is
+ * always a tick, so negative values (e.g. negative power prices) get ticks below it.
  *
- * @returns Ascending ticks; the last is the axis maximum.
+ * @param min Lowest value to cover; values above 0 are treated as 0.
+ * @returns Ascending ticks; the first is the axis minimum and the last the maximum.
  */
-export function yTicks(max: number, count: number): number[] {
-  if (max <= 0) return [0, 1];
-  const step = niceStep(max / count);
-  const intervals = Math.ceil(max / step);
-  return Array.from({ length: intervals + 1 }, (_, i) => i * step);
+export function yTicks(max: number, count: number, min = 0): number[] {
+  const low = Math.min(0, min);
+  if (max <= 0 && low === 0) return [0, 1];
+  const step = niceStep((Math.max(max, 0) - low) / count);
+  const first = Math.floor(low / step);
+  const last = Math.max(1, Math.ceil(max / step));
+  // Multiply rather than accumulate so ticks stay exact (no 0.30000000000000004).
+  return Array.from({ length: last - first + 1 }, (_, i) => (first + i) * step + 0);
 }

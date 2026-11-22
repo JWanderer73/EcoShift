@@ -10,13 +10,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from src.forecast import REGIONS
+from src.forecast import REGIONS, SITES, ForecastPoint
 from src.forecast import get_forecast as _synthetic_forecast
 from src.windows import Window, find_best_windows
 
 DEFAULT_REGION = "CISO"
 DEFAULT_TOP = 3
-SUPPORTED_REGIONS = tuple(REGIONS)
+SUPPORTED_REGIONS = (*REGIONS, *SITES)
 
 
 class ApiError(Exception):
@@ -91,7 +91,8 @@ def get_forecast(region: str = DEFAULT_REGION, now: datetime | None = None) -> d
     Returns:
         A JSON-serializable dict with ``region``, ``generated_at``, ``stale``,
         ``data_source`` and ``points``: consecutive hours, each with its
-        ``start`` and ``intensity`` in gCO2/kWh.
+        ``start`` and ``intensity`` in gCO2/kWh, plus ``price`` in USD/MWh
+        for a site.
 
     Raises:
         ApiError: If the region is unknown.
@@ -105,8 +106,15 @@ def get_forecast(region: str = DEFAULT_REGION, now: datetime | None = None) -> d
         "generated_at": _iso(forecast.generated_at),
         "stale": forecast.stale,
         "data_source": forecast.data_source,
-        "points": [{"start": _iso(p.start), "intensity": p.intensity} for p in forecast.points],
+        "points": [_point_json(p) for p in forecast.points],
     }
+
+
+def _point_json(point: ForecastPoint) -> dict:
+    data: dict = {"start": _iso(point.start), "intensity": point.intensity}
+    if point.price is not None:
+        data["price"] = point.price
+    return data
 
 
 def _window_json(rank: int, window: Window) -> dict:

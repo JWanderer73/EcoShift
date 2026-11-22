@@ -5,12 +5,10 @@
 import { SYNTHETIC_SOURCE, type ForecastPoint, type ForecastResponse } from "@/lib/api/types";
 import { FORECAST_HORIZON_HOURS, HOUR_MS } from "@/lib/config";
 
-/** Knobs for one region's daily cycle. Intensities in gCO₂/kWh. */
-interface Profile {
-  /** IANA zone the grid operates in; places the solar dip and demand peak in local time. */
-  timeZone: string;
+/** Knobs for one daily cycle, used for both intensity (gCO₂/kWh) and price (USD/MWh). */
+interface Curve {
   base: number;
-  /** How far midday solar pulls intensity down. */
+  /** How far midday solar pulls the value down. */
   solarDip: number;
   /** How far the evening demand peak pushes it up. */
   eveningPeak: number;
@@ -18,10 +16,32 @@ interface Profile {
   windSwing: number;
 }
 
-const PROFILES: Record<string, Profile> = {
-  CISO: { timeZone: "America/Los_Angeles", base: 270, solarDip: 160, eveningPeak: 45, windSwing: 30 },
-  ERCO: { timeZone: "America/Chicago", base: 400, solarDip: 90, eveningPeak: 40, windSwing: 110 },
-  PJM: { timeZone: "America/New_York", base: 390, solarDip: 30, eveningPeak: 35, windSwing: 30 },
+/** A balancing authority's carbon: one curve shared by every site on that grid. */
+interface Grid {
+  /** IANA zone the grid operates in; places the solar dip and demand peak in local time. */
+  timeZone: string;
+  intensity: Curve;
+}
+
+// Rough characters: CAISO's deep solar dip, Sacramento's hydro, Los Angeles's gas evenings.
+const GRIDS: Record<string, Grid> = {
+  CISO: { timeZone: "America/Los_Angeles", intensity: { base: 270, solarDip: 160, eveningPeak: 45, windSwing: 30 } },
+  BANC: { timeZone: "America/Los_Angeles", intensity: { base: 200, solarDip: 60, eveningPeak: 45, windSwing: 25 } },
+  LDWP: { timeZone: "America/Los_Angeles", intensity: { base: 360, solarDip: 120, eveningPeak: 50, windSwing: 20 } },
+};
+
+/**
+ * Each data center's grid (for carbon) and the price curve at its nearest pricing node (USD/MWh).
+ * Bay Area nodes sit near NP15, El Segundo near SP15, San Diego at SDG&E's higher, more congested prices.
+ */
+const SITES: Record<string, { grid: string; price: Curve }> = {
+  "coresite-sv7": { grid: "CISO", price: { base: 56, solarDip: 40, eveningPeak: 62, windSwing: 8 } },
+  "equinix-sv1": { grid: "CISO", price: { base: 55, solarDip: 42, eveningPeak: 58, windSwing: 8 } },
+  "he-fremont2": { grid: "CISO", price: { base: 54, solarDip: 40, eveningPeak: 60, windSwing: 9 } },
+  "equinix-la4": { grid: "CISO", price: { base: 50, solarDip: 55, eveningPeak: 65, windSwing: 8 } },
+  "databank-san2": { grid: "CISO", price: { base: 62, solarDip: 50, eveningPeak: 80, windSwing: 6 } },
+  "ntt-ca1": { grid: "BANC", price: { base: 48, solarDip: 30, eveningPeak: 55, windSwing: 8 } },
+  "coresite-la1": { grid: "LDWP", price: { base: 52, solarDip: 45, eveningPeak: 60, windSwing: 6 } },
 };
 
 /** Design doc default: the batch pipeline refreshes forecasts every 3 hours. */
@@ -30,10 +50,13 @@ const REFRESH_EVERY_HOURS = 3;
 const PIPELINE_RUNTIME_MIN = 6;
 /** How many refreshes a stale forecast has missed. */
 const STALE_MISSED_REFRESHES = 3;
-/** Random hour-to-hour jitter, as a fraction of the region's base intensity. */
+/** Random hour-to-hour jitter, as a fraction of the curve's base value. */
 const NOISE_FRACTION = 0.04;
+const PRICE_NOISE_FRACTION = 0.06;
 /** No grid in the list goes below this, even at the sunniest, windiest hour. */
 const MIN_INTENSITY = 15;
+/** Oversupplied hours can go negative, but not without limit. */
+const MIN_PRICE = -30;
 
 const hourFormatters = new Map<string, Intl.DateTimeFormat>();
 
@@ -77,16 +100,31 @@ function windCurve(hoursSinceEpoch: number, code: string): number {
   return 0.5 + 0.35 * Math.sin((2 * Math.PI * hoursSinceEpoch) / 31 + phase) + 0.15 * Math.sin((2 * Math.PI * hoursSinceEpoch) / 11 + phase * 2);
 }
 
-function intensityAt(code: string, profile: Profile, time: number): number {
-  const hour = localHour(time, profile.timeZone);
+/** One hour of a curve. Wind lowers both intensity and price, so the two move together but not in lockstep. */
+function curveAt(curve: Curve, hour: number, wind: number, jitter: number): number {
+  return curve.base - curve.solarDip * solarCurve(hour) + curve.eveningPeak * demandCurve(hour) - curve.windSwing * (wind - 0.5) * 2 + jitter;
+}
+
+/**
+ * One hour at a grid, plus a price when it's a site. Carbon is seeded by grid, so every site on
+ * one grid shares the same intensity, as it would with real BA-level data.
+ */
+function pointAt(gridCode: string, siteCode: string | null, time: number): ForecastPoint {
+  const grid = GRIDS[gridCode];
+  const hour = localHour(time, grid.timeZone);
   const hoursSinceEpoch = Math.floor(time / HOUR_MS);
-  const value =
-    profile.base -
-    profile.solarDip * solarCurve(hour) +
-    profile.eveningPeak * demandCurve(hour) -
-    profile.windSwing * (windCurve(hoursSinceEpoch, code) - 0.5) * 2 +
-    profile.base * NOISE_FRACTION * noise(`${code}:${hoursSinceEpoch}`);
-  return Math.max(MIN_INTENSITY, Math.round(value));
+  const wind = windCurve(hoursSinceEpoch, gridCode);
+  const intensityJitter = grid.intensity.base * NOISE_FRACTION * noise(`${gridCode}:${hoursSinceEpoch}`);
+  const point: ForecastPoint = {
+    start: new Date(time).toISOString(),
+    intensity: Math.max(MIN_INTENSITY, Math.round(curveAt(grid.intensity, hour, wind, intensityJitter))),
+  };
+  if (siteCode) {
+    const price = SITES[siteCode].price;
+    const priceJitter = price.base * PRICE_NOISE_FRACTION * noise(`${siteCode}:price:${hoursSinceEpoch}`);
+    point.price = Math.max(MIN_PRICE, Math.round(curveAt(price, hour, wind, priceJitter) * 100) / 100);
+  }
+  return point;
 }
 
 /** Start of the hour containing `time`. */
@@ -103,23 +141,23 @@ function lastRefresh(now: number, missed: number): number {
 }
 
 /**
- * Build a sample forecast for a region.
+ * Build a sample forecast for a site (with prices) or a balancing authority (carbon only).
  *
- * @param code EIA region code from `REGIONS`.
+ * @param code A site code from `REGIONS`, or a balancing-authority code like "CISO".
  * @param now Current time in ms; the forecast starts at the hour containing it.
  * @param stale Simulate a pipeline that has stopped refreshing.
  * @returns A response shaped like the real `/forecast` endpoint's. The same region and hour always
  *   give the same numbers, so reloads and tests are stable.
  */
 export function generateMockForecast(code: string, now: number, stale = false): ForecastResponse {
-  const profile = PROFILES[code];
-  if (!profile) throw new Error(`No sample data for region ${code}`);
+  const site = SITES[code];
+  const gridCode = site ? site.grid : code;
+  if (!GRIDS[gridCode]) throw new Error(`No sample data for region ${code}`);
 
   const first = startOfHour(now);
-  const points: ForecastPoint[] = Array.from({ length: FORECAST_HORIZON_HOURS }, (_, i) => {
-    const time = first + i * HOUR_MS;
-    return { start: new Date(time).toISOString(), intensity: intensityAt(code, profile, time) };
-  });
+  const points: ForecastPoint[] = Array.from({ length: FORECAST_HORIZON_HOURS }, (_, i) =>
+    pointAt(gridCode, site ? code : null, first + i * HOUR_MS),
+  );
 
   return {
     region: code,

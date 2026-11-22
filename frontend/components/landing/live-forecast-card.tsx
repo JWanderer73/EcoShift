@@ -5,13 +5,12 @@ import Link from "next/link";
 import { SampleDataBadge } from "@/components/dashboard/status";
 import { Card } from "@/components/ui/card";
 import { SYNTHETIC_SOURCE } from "@/lib/api/types";
-import { DEFAULT_JOB_HOURS, DEFAULT_REGION, FORECAST_HORIZON_HOURS } from "@/lib/config";
+import { CLI_REGION_NAME, DEFAULT_JOB_HOURS, FORECAST_HORIZON_HOURS } from "@/lib/config";
 import { formatHours, formatIntensity, formatPct, formatRange } from "@/lib/format";
 import { useDefaultForecast } from "@/lib/hooks/use-default-forecast";
-import { findRegion } from "@/lib/regions";
 import { MiniForecast } from "./mini-forecast";
 
-const regionName = findRegion(DEFAULT_REGION)?.shortName ?? DEFAULT_REGION;
+const regionName = CLI_REGION_NAME;
 
 /** Hero card with the current forecast for the default region, so the landing page leads with real output. */
 export function LiveForecastCard() {

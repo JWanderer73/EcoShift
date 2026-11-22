@@ -11,6 +11,11 @@ export interface ForecastPoint {
   start: string;
   /** Average grid carbon intensity over the hour, in gCO₂/kWh. */
   intensity: number;
+  /**
+   * Wholesale electricity price for the hour at the site's pricing zone, in USD/MWh. Can be
+   * negative. Only sites have one; a whole balancing authority (e.g. CISO) doesn't.
+   */
+  price?: number;
 }
 
 export interface ForecastResponse {

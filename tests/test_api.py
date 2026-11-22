@@ -81,6 +81,11 @@ def test_forecast_response_shape() -> None:
     json.dumps(response)
 
 
+def test_forecast_for_a_site_includes_prices() -> None:
+    points = get_forecast("coresite-sv7", now=NOW)["points"]
+    assert set(points[0]) == {"start", "intensity", "price"}
+
+
 def test_forecast_unknown_region_raises() -> None:
     with pytest.raises(ApiError, match="unknown region"):
         get_forecast("NOPE", now=NOW)

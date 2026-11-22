@@ -18,7 +18,26 @@ describe("generateMockForecast", () => {
 
   it("gives the same numbers for the same region and hour", () => {
     const later = NOW + 20 * 60 * 1000;
-    expect(generateMockForecast("ERCO", later).points).toEqual(generateMockForecast("ERCO", NOW).points);
+    expect(generateMockForecast("coresite-sv7", later).points).toEqual(generateMockForecast("coresite-sv7", NOW).points);
+  });
+
+  it("gives sites on one grid the same carbon but different prices", () => {
+    const sv7 = generateMockForecast("coresite-sv7", NOW).points;
+    const sv1 = generateMockForecast("equinix-sv1", NOW).points;
+    expect(sv7.map((p) => p.intensity)).toEqual(sv1.map((p) => p.intensity));
+    expect(sv7.map((p) => p.price)).not.toEqual(sv1.map((p) => p.price));
+  });
+
+  it("serves a balancing authority without prices", () => {
+    expect(generateMockForecast("CISO", NOW).points.every((p) => p.price === undefined)).toBe(true);
+  });
+
+  it("prices every hour for every site", () => {
+    for (const { code } of REGIONS) {
+      for (const { price } of generateMockForecast(code, NOW).points) {
+        expect(Number.isFinite(price)).toBe(true);
+      }
+    }
   });
 
   it("produces positive whole numbers for every region", () => {
@@ -53,7 +72,7 @@ describe("generateMockForecast", () => {
   });
 
   it("labels itself as synthetic", () => {
-    expect(generateMockForecast("PJM", NOW).data_source).toBe(SYNTHETIC_SOURCE);
+    expect(generateMockForecast("ntt-ca1", NOW).data_source).toBe(SYNTHETIC_SOURCE);
   });
 
   it("rejects unknown regions", () => {
