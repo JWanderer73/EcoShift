@@ -6,13 +6,25 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from price_windows.build_dataset import _campuses, _keep_total_lmp, _parse_page, _with_lags, folder, meta_path
+from price_windows.build_dataset import (
+    _campuses,
+    _fill_from_nearest,
+    _keep_total_lmp,
+    _parse_page,
+    _with_lags,
+    folder,
+    meta_path,
+)
 from price_windows.schema import (
+    SAN_MATEO_NAME,
     TARGET,
+    WEATHER_FEATURES,
     WEEK_COLUMN,
     WEEK_LAGS,
+    assign_umbrellas,
     dlap_for_city,
     feature_columns,
+    forecast_points,
     illegal_feature_names,
     nearest_five,
 )
@@ -143,6 +155,52 @@ def test_built_table_keeps_five_nodes_and_refuses_a_short_lag():
     counts = candidates.groupby("campus_id").size()
     assert counts.eq(5).all()
     assert set(counts.index) == set(sites["campus_id"])
+
+
+def test_two_nearby_nodes_share_an_umbrella_and_a_far_node_does_not():
+    nodes = pd.DataFrame(
+        {
+            "pnode_id": ["NEAR_A", "NEAR_B", "FAR"],
+            "latitude": [37.36, 37.37, 34.05],
+            "longitude": [-121.95, -121.94, -118.25],
+        }
+    )
+    assigned = assign_umbrellas(nodes)
+    names = dict(zip(assigned["pnode_id"], assigned["umbrella"]))
+    assert names["NEAR_A"] == names["NEAR_B"]
+    assert names["FAR"] != names["NEAR_A"]
+
+
+def test_san_mateo_is_a_forecast_point_and_a_local_node_uses_it():
+    far = pd.DataFrame({"pnode_id": ["LA"], "latitude": [34.05], "longitude": [-118.25]})
+    points = forecast_points(far)
+    assert SAN_MATEO_NAME in set(points["umbrella"])
+    local = pd.DataFrame({"pnode_id": ["SM"], "latitude": [37.563], "longitude": [-122.325]})
+    assigned = assign_umbrellas(local)
+    assert assigned.iloc[0]["umbrella"] == SAN_MATEO_NAME
+
+
+def test_a_missing_weather_hour_is_filled_from_the_nearest_umbrella():
+    points = pd.DataFrame(
+        {
+            "umbrella": ["a", "b"],
+            "umbrella_latitude": [37.0, 37.1],
+            "umbrella_longitude": [-122.0, -122.0],
+        }
+    )
+    arrays = {feature: np.full((2, 2), np.nan) for feature in WEATHER_FEATURES}
+    arrays["temperature_forecast_day5"][:, 1] = [15.0, 21.0]
+    arrays["cloud_cover_forecast_day5"][:, 1] = [10.0, 40.0]
+    arrays["wind_speed_forecast_day5"][:, 1] = [1.0, 3.0]
+    arrays["shortwave_forecast_day5"][:, 1] = [0.0, 5.0]
+    arrays["temperature_forecast_day5"][1, 0] = 20.0
+    arrays["cloud_cover_forecast_day5"][1, 0] = 30.0
+    arrays["wind_speed_forecast_day5"][1, 0] = 2.0
+    arrays["shortwave_forecast_day5"][1, 0] = 4.0
+    filled = _fill_from_nearest(arrays, points)
+    assert filled == 1
+    assert arrays["temperature_forecast_day5"][0, 0] == 15.0
+    assert arrays["cloud_cover_forecast_day5"][0, 0] == 10.0
 
 
 def test_a_closer_band_still_wins():

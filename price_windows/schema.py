@@ -34,7 +34,17 @@ PERCENT_PRICE_FLOOR = 5.0
 DEFAULT_KW = 8.0
 # No feature in this folder is legal further ahead than this.
 HORIZON_DAYS = 5
+# The job search the command answers. Three days is inside the five-day feature rule.
+SEARCH_DAYS = 3
 LOCAL_TZ = "America/Los_Angeles"
+# Downtown San Mateo. A regional forecast point, not a price target.
+SAN_MATEO_LATITUDE = 37.5630
+SAN_MATEO_LONGITUDE = -122.3255
+SAN_MATEO_NAME = "san-mateo"
+# One day-5 forecast covers a cell of this size. About 28 km on a side.
+WEATHER_CELL_DEGREES = 0.25
+# A cell already this close to San Mateo is the San Mateo umbrella.
+UMBRELLA_NEAR_KM = 15.0
 HISTORY_START = "2025-11-15"
 HISTORY_END = "2026-11-14"
 # Named price lags. The week mean also uses the hours between 168 and 336.
@@ -43,6 +53,9 @@ LMP_LAGS = (120, 144, 168, 336)
 WEEK_LAGS = (120, 144, 168, 192, 216, 240, 264)
 WEEK_COLUMN = "lmp_same_hour_week"
 LOAD_FEATURE = "load_forecast_7da_mwh"
+# EIA Henry Hub daily spot, $/MMBtu, series NG.RNGWHHD.D. The number in the name is the lag.
+# The saved model does not list this column. A missing value stays missing.
+GAS_FEATURE = "henry_hub_lag_120"
 CALENDAR_FEATURES = (
     "hour_sin",
     "hour_cos",
@@ -168,6 +181,108 @@ def illegal_feature_names(names: list[str]) -> list[str]:
         if lowered == TARGET or short_lag or component:
             refused.append(name)
     return refused
+
+
+def usd_per_kwh(price_usd_per_mwh: float) -> float:
+    """The same CAISO price, printed per kilowatt-hour. 1 $/MWh is 0.001 $/kWh."""
+    return float(price_usd_per_mwh) / 1000.0
+
+
+def weather_cell(latitude: float, longitude: float) -> tuple[float, float]:
+    """The center of the 0.25 degree cell that contains this point."""
+    step = WEATHER_CELL_DEGREES
+    lat = round(round(float(latitude) / step) * step, 2)
+    lon = round(round(float(longitude) / step) * step, 2)
+    return lat, lon
+
+
+def assign_umbrellas(nodes: pd.DataFrame) -> pd.DataFrame:
+    """The day-5 forecast point for each P-node.
+
+    Nodes in one 0.25 degree cell share a forecast. San Mateo is that cell when
+    a cell center is already within 15 km, and a separate point otherwise. A node
+    uses San Mateo when that point is closer than its own cell center.
+    """
+    columns = [
+        "pnode_id",
+        "umbrella",
+        "umbrella_latitude",
+        "umbrella_longitude",
+        "umbrella_distance_km",
+    ]
+    if nodes.empty or "pnode_id" not in nodes.columns:
+        return pd.DataFrame(columns=columns)
+    frame = nodes.loc[:, ["pnode_id", "latitude", "longitude"]].dropna().drop_duplicates("pnode_id").copy()
+    if frame.empty:
+        return pd.DataFrame(columns=columns)
+    frame = frame.reset_index(drop=True)
+    cells = [weather_cell(lat, lon) for lat, lon in zip(frame["latitude"], frame["longitude"])]
+    frame["cell_lat"] = [lat for lat, _ in cells]
+    frame["cell_lon"] = [lon for _, lon in cells]
+    centers = frame.loc[:, ["cell_lat", "cell_lon"]].drop_duplicates().reset_index(drop=True)
+    centers["km"] = haversine_km(
+        SAN_MATEO_LATITUDE,
+        SAN_MATEO_LONGITUDE,
+        centers["cell_lat"].to_numpy(),
+        centers["cell_lon"].to_numpy(),
+    )
+    named = {
+        (float(row.cell_lat), float(row.cell_lon)): (
+            f"cell-{row.cell_lat:.2f}_{row.cell_lon:.2f}",
+            float(row.cell_lat),
+            float(row.cell_lon),
+        )
+        for row in centers.itertuples(index=False)
+    }
+    nearest = centers.sort_values(["km", "cell_lat", "cell_lon"]).iloc[0]
+    if float(nearest["km"]) <= UMBRELLA_NEAR_KM:
+        key = (float(nearest["cell_lat"]), float(nearest["cell_lon"]))
+        _, lat, lon = named[key]
+        named[key] = (SAN_MATEO_NAME, lat, lon)
+        sm_lat, sm_lon = lat, lon
+    else:
+        sm_lat, sm_lon = SAN_MATEO_LATITUDE, SAN_MATEO_LONGITUDE
+    rows = []
+    for node in frame.itertuples(index=False):
+        cell_name, cell_lat, cell_lon = named[(float(node.cell_lat), float(node.cell_lon))]
+        dist_cell = float(haversine_km(node.latitude, node.longitude, cell_lat, cell_lon))
+        dist_sm = float(haversine_km(node.latitude, node.longitude, sm_lat, sm_lon))
+        if dist_sm < dist_cell:
+            chosen = (SAN_MATEO_NAME, sm_lat, sm_lon, dist_sm)
+        else:
+            chosen = (cell_name, cell_lat, cell_lon, dist_cell)
+        rows.append(
+            {
+                "pnode_id": node.pnode_id,
+                "umbrella": chosen[0],
+                "umbrella_latitude": chosen[1],
+                "umbrella_longitude": chosen[2],
+                "umbrella_distance_km": chosen[3],
+            }
+        )
+    return pd.DataFrame(rows, columns=columns)
+
+
+def forecast_points(nodes: pd.DataFrame) -> pd.DataFrame:
+    """One forecast download per umbrella, including San Mateo when it is not already a cell."""
+    assignment = assign_umbrellas(nodes)
+    columns = ["umbrella", "umbrella_latitude", "umbrella_longitude"]
+    if assignment.empty:
+        points = pd.DataFrame(columns=columns)
+    else:
+        points = assignment.loc[:, columns].drop_duplicates("umbrella").reset_index(drop=True)
+    if SAN_MATEO_NAME not in set(points["umbrella"]):
+        extra = pd.DataFrame(
+            [
+                {
+                    "umbrella": SAN_MATEO_NAME,
+                    "umbrella_latitude": SAN_MATEO_LATITUDE,
+                    "umbrella_longitude": SAN_MATEO_LONGITUDE,
+                }
+            ]
+        )
+        points = pd.concat([points, extra], ignore_index=True)
+    return points
 
 
 def haversine_km(lat1, lon1, lat2, lon2) -> np.ndarray:

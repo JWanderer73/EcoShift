@@ -121,6 +121,7 @@ def test_printed_window_for_an_8kw_job_includes_dollars_and_a_negative_price() -
     text = format_report(result)
     assert "dollars" in text
     assert "-0.32 dollars" in text
+    assert "-0.01000 $/kWh" in text
     assert "DLAP_PGAE-APND" in text
     assert "does not forecast" in text
 
@@ -139,11 +140,44 @@ def test_days_above_five_are_clamped_and_the_report_says_so() -> None:
         candidates=_nodes(),
         saved=_saved(),
     )
-    assert result["clamped_to_5_days"] is True
-    assert result["horizon_hours"] == 120
+    assert result["clamped_to_3_days"] is True
+    assert result["horizon_hours"] == 72
     assert result["winner"]["job_dollars"] == pytest.approx(0.80)
     assert result["winner"]["rank"] == 1
-    assert "days clamped to 5" in format_report(result)
+    assert "days clamped to 3" in format_report(result)
+
+
+def test_a_range_inside_three_days_skips_hours_outside_it() -> None:
+    anchor = pd.Timestamp("2026-11-14 23:00", tz="UTC")
+    history = pd.date_range(anchor - pd.Timedelta(hours=200), anchor, freq="h", tz="UTC")
+    cheap = pd.Series(40.0, index=history)
+    for step in range(1, 5):
+        cheap.loc[anchor + pd.Timedelta(hours=step - 120)] = -10.0
+    early = recommend(
+        "Santa Clara",
+        duration=4,
+        days=3,
+        table=_table(anchor, {"NODE_A": cheap, "NODE_B": cheap}),
+        sites=_sites(),
+        candidates=_nodes(),
+        saved=_saved(),
+        range_start="2026-11-14 16:00",
+        range_end="2026-11-14 19:00",
+    )
+    later = recommend(
+        "Santa Clara",
+        duration=4,
+        days=3,
+        table=_table(anchor, {"NODE_A": cheap, "NODE_B": cheap}),
+        sites=_sites(),
+        candidates=_nodes(),
+        saved=_saved(),
+        range_start="2026-11-16 00:00",
+        range_end="2026-11-16 12:00",
+    )
+    assert early["winner"]["average_usd_per_mwh"] == pytest.approx(-10.0)
+    assert later["winner"]["average_usd_per_mwh"] == pytest.approx(40.0)
+    assert "0.04000 $/kWh" in format_report(later)
 
 
 def test_several_campuses_are_listed_instead_of_guessed() -> None:

@@ -139,13 +139,14 @@ def test_an_8kw_four_hour_job_prints_dollars():
         candidates=nodes,
         saved={"model": _Flat(), "features": ["hour_sin"], "target": TARGET},
     )
-    assert result["clamped_to_5_days"] is True
-    assert result["horizon_hours"] == 120
+    assert result["clamped_to_3_days"] is True
+    assert result["horizon_hours"] == 72
     assert len(result["options"]) == 5
     assert result["winner"]["job_dollars"] == pytest.approx(1.28)
     text = format_report(result)
     assert "1.28 dollars" in text
-    assert "days clamped to 5" in text
+    assert "0.04000 $/kWh" in text
+    assert "days clamped to 3" in text
     assert "DLAP_PGAE-APND" in text
 
 

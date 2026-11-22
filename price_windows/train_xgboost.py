@@ -36,6 +36,8 @@ SHIFT_HOURS = 4
 LAG_168 = "lmp_lag_168"
 BASELINE_WEEK = "same hour last week"
 BASELINE_HOUR = "hour of week mean"
+# Extra trees when continuing a saved booster. This is not an Optuna search.
+UPDATE_TREES = 20
 
 
 def predict_price(saved: dict, frame: pd.DataFrame) -> np.ndarray:
@@ -349,6 +351,75 @@ def train(
     return metrics
 
 
+def update_model(saved: dict, frame: pd.DataFrame, output_path: Path, extra_trees: int = UPDATE_TREES) -> dict:
+    """Continue the saved booster on ``frame`` only.
+
+    ``n_estimators`` on this fit is the number of new trees. Optuna does not
+    run. The file at ``output_path`` is the only model written. The morning
+    job does not call this.
+    """
+    features = list(saved["features"])
+    _refuse(features)
+    if extra_trees < 1:
+        raise ValueError("extra_trees must be at least 1")
+    if frame.empty:
+        raise ValueError("there are no new rows to continue from")
+    _require_columns(frame, features)
+    model = saved["model"]
+    model.set_params(n_estimators=int(extra_trees), n_jobs=1)
+    try:
+        model.fit(
+            frame.loc[:, features].astype(float),
+            frame[TARGET].astype(float),
+            xgb_model=model.get_booster(),
+            verbose=False,
+        )
+        updated = {"model": model, "features": features, "target": TARGET, "unit": UNIT}
+        destination = Path(output_path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        joblib.dump(updated, destination)
+    finally:
+        _release_workers()
+    return updated
+
+
+def continue_saved_model() -> None:
+    """Fit rows after the saved training end. Does not run the 40-trial search.
+
+    A full Optuna search stays manual. This reads the modeling table only to
+    slice the new rows, and it refuses to fit the table when that cutoff is
+    missing or the saved feature list no longer matches.
+    """
+    root = dataset_path().parent
+    model_path = root / "model.joblib"
+    if not model_path.exists():
+        raise SystemExit(
+            "price_windows/model.joblib is missing. --update-model does not search and does not train from scratch."
+        )
+    saved = joblib.load(model_path)
+    frame, features, _meta = _load()
+    if list(saved.get("features", [])) != list(features):
+        raise SystemExit(
+            "The saved model features differ from price_dataset.meta.json. "
+            "A full Optuna search is manual. --update-model will not retune."
+        )
+    metrics_path = root / "metrics.json"
+    if not metrics_path.exists():
+        raise SystemExit("metrics.json is missing, so the new-row cutoff is unknown. A full search is manual.")
+    metrics = json.loads(metrics_path.read_text())
+    if not metrics.get("train_end"):
+        raise SystemExit("metrics.json has no train_end. Refusing to fit the whole table.")
+    cutoff = pd.Timestamp(metrics["train_end"])
+    if cutoff.tzinfo is None:
+        cutoff = cutoff.tz_localize("UTC")
+    new_rows = frame.loc[frame.index > cutoff]
+    if new_rows.empty:
+        print("no rows after the saved training end; model left unchanged")
+        return
+    print(f"continuing on {len(new_rows)} rows after {cutoff}")
+    update_model(saved, new_rows, model_path)
+
+
 def _fmt(value) -> str:
     if value is None:
         return "n/a"
@@ -383,7 +454,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Tune XGBoost on CAISO day-ahead P-node prices.")
     parser.add_argument("--trials", type=int, default=40)
     parser.add_argument("--minutes", type=float, default=None, help="stop the search after this many minutes")
+    parser.add_argument(
+        "--update-model",
+        action="store_true",
+        help="continue the saved booster on rows after metrics.json train_end; does not run Optuna",
+    )
     args = parser.parse_args()
+    if args.update_model:
+        continue_saved_model()
+        return
     n_trials = args.trials if args.minutes is None else max(args.trials, 10_000)
     timeout = None if args.minutes is None else args.minutes * 60
     train(n_trials=n_trials, timeout=timeout)

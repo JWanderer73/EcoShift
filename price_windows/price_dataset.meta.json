@@ -57,6 +57,9 @@
     "wind_speed_forecast_day5",
     "shortwave_forecast_day5"
   ],
+  "weather_umbrellas": 31,
+  "san_mateo_umbrella": true,
+  "weather_hours_filled_from_neighbor": 0,
   "load_forecast": "load_forecast_7da_mwh",
   "campuses": 206,
   "distinct_nodes": 216,
@@ -65,7 +68,7 @@
   "end": "2026-11-14 23:00:00+00:00",
   "history_start": "2025-11-15",
   "history_end": "2026-11-14",
-  "content_hash": "689474ed3891a006",
+  "content_hash": "d3bb9e6f7fcbf1c3",
   "geocode": "Open-Meteo search is tried first. It does not resolve street addresses, so a miss falls through to the US Census one-line geocoder.",
   "ungeocoded_campuses": [
     "Digital Realty SJC17, 2045 & 2055 Lafayette St, Santa Clara",

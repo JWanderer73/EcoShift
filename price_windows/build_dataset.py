@@ -42,8 +42,11 @@ from price_windows.schema import (
     WEATHER_FEATURES,
     WEEK_COLUMN,
     WEEK_LAGS,
+    assign_umbrellas,
     dlap_for_city,
     feature_columns,
+    forecast_points,
+    haversine_km,
     illegal_feature_names,
     nearest_five,
 )
@@ -566,30 +569,76 @@ def _weather_one(latitude: float, longitude: float) -> pd.DataFrame:
     return frame
 
 
-def _weather(campuses: pd.DataFrame) -> pd.DataFrame:
-    """The forecast issued five days before each hour, at the campus."""
-    points = campuses.loc[:, ["campus_id", "latitude", "longitude"]].drop_duplicates("campus_id")
-    points["key"] = points.apply(lambda row: (round(row.latitude, 4), round(row.longitude, 4)), axis=1)
-    unique = points.drop_duplicates("key")
-    fetched: dict[tuple[float, float], pd.DataFrame] = {}
+def _fill_from_nearest(arrays: dict[str, np.ndarray], points: pd.DataFrame) -> int:
+    """Copy a missing hour from the nearest umbrella that has the day-5 forecast.
+
+    All four weather values at that hour come from the same neighbor. The count
+    is the number of umbrella-hours that were empty and then filled.
+    """
+    names = list(points["umbrella"])
+    lat = points["umbrella_latitude"].to_numpy(dtype=float)
+    lon = points["umbrella_longitude"].to_numpy(dtype=float)
+    count = len(names)
+    distance = np.zeros((count, count))
+    for index in range(count):
+        distance[index] = haversine_km(lat[index], lon[index], lat, lon)
+        distance[index, index] = np.inf
+    order = np.argsort(distance, axis=1)
+    present = np.ones((arrays[WEATHER_FEATURES[0]].shape[0], count), dtype=bool)
+    for feature in WEATHER_FEATURES:
+        present &= np.isfinite(arrays[feature])
+    filled = 0
+    for index in range(count):
+        missing = ~present[:, index]
+        for donor in order[index]:
+            if not missing.any():
+                break
+            if not np.isfinite(distance[index, donor]):
+                continue
+            take = missing & present[:, donor]
+            if not take.any():
+                continue
+            for feature in WEATHER_FEATURES:
+                arrays[feature][take, index] = arrays[feature][take, donor]
+            filled += int(take.sum())
+            missing[take] = False
+    return filled
+
+
+def _regional_weather(points: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Day-5 forecast for each umbrella. A hole is filled from the nearest umbrella."""
+    fetched: dict[str, pd.DataFrame] = {}
 
     def fetch(row):
-        return row.key, _weather_one(row.latitude, row.longitude)
+        return row.umbrella, _weather_one(float(row.umbrella_latitude), float(row.umbrella_longitude))
 
     with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = [pool.submit(fetch, row) for row in unique.itertuples(index=False)]
+        futures = [pool.submit(fetch, row) for row in points.itertuples(index=False)]
         for future in as_completed(futures):
-            key, frame = future.result()
-            fetched[key] = frame
-            print(f"weather {key[0]:.4f},{key[1]:.4f}: {len(frame)} hours")
-    frames = []
-    for row in points.to_dict(orient="records"):
-        frame = fetched[row["key"]].copy()
-        frame["campus_id"] = row["campus_id"]
-        frames.append(frame)
-    combined = pd.concat(frames)
+            name, frame = future.result()
+            fetched[name] = frame
+            print(f"weather {name}: {int(frame[WEATHER_FEATURES[0]].notna().sum())} hours")
+    if not fetched:
+        raise RuntimeError("no regional weather forecast")
+    start = min(frame.index.min() for frame in fetched.values())
+    end = max(frame.index.max() for frame in fetched.values())
+    index = pd.date_range(start, end, freq="h", tz="UTC")
+    names = list(points["umbrella"])
+    arrays = {feature: np.full((len(index), len(names)), np.nan) for feature in WEATHER_FEATURES}
+    for column, name in enumerate(names):
+        frame = fetched[name].reindex(index)
+        for feature in WEATHER_FEATURES:
+            arrays[feature][:, column] = pd.to_numeric(frame[feature], errors="coerce").to_numpy(dtype=float)
+    filled = _fill_from_nearest(arrays, points)
+    blocks = []
+    for column, name in enumerate(names):
+        block = pd.DataFrame({feature: arrays[feature][:, column] for feature in WEATHER_FEATURES}, index=index)
+        block["umbrella"] = name
+        blocks.append(block)
+    combined = pd.concat(blocks)
     combined.index.name = "timestamp"
-    return combined.reset_index()
+    print(f"weather hours filled from a neighbor umbrella: {filled}")
+    return combined.reset_index(), filled
 
 
 def _load_forecast() -> pd.DataFrame | None:
@@ -670,7 +719,7 @@ def _drop_correlated(frame: pd.DataFrame, features: list[str]) -> tuple[list[str
     return kept, dropped
 
 
-def _assemble(campuses, candidates, prices, weather, load) -> tuple[pd.DataFrame, dict]:
+def _assemble(campuses, candidates, prices, weather, load, assignment, filled_hours: int) -> tuple[pd.DataFrame, dict]:
     """One row per campus, per candidate node, per hour, then the leakage gate."""
     include_load = load is not None
     proposed = feature_columns(include_load)
@@ -679,8 +728,9 @@ def _assemble(campuses, candidates, prices, weather, load) -> tuple[pd.DataFrame
         raise RuntimeError(f"refusing to write; features include the price or a short lag: {banned}")
     nodes = candidates.rename(columns={"latitude": "node_latitude", "longitude": "node_longitude"})
     nodes["node_type_load"] = nodes["node_type"].str.contains("load", case=False).astype(float)
+    nodes = nodes.merge(assignment, on="pnode_id", how="left")
     table = nodes.merge(prices, on="pnode_id", how="inner")
-    table = table.merge(weather, on=["campus_id", "timestamp"], how="left")
+    table = table.merge(weather, on=["umbrella", "timestamp"], how="left")
     if include_load:
         table = table.merge(load.reset_index(), on="timestamp", how="left")
     table = table.set_index("timestamp").sort_index()
@@ -717,6 +767,9 @@ def _assemble(campuses, candidates, prices, weather, load) -> tuple[pd.DataFrame
         "calendar": list(CALENDAR_FEATURES),
         "static": list(STATIC_FEATURES),
         "weather": list(WEATHER_FEATURES),
+        "weather_umbrellas": int(assignment["umbrella"].nunique()) if not assignment.empty else 0,
+        "san_mateo_umbrella": "san-mateo" in set(assignment["umbrella"]) if not assignment.empty else False,
+        "weather_hours_filled_from_neighbor": int(filled_hours),
         "load_forecast": LOAD_FEATURE if include_load else None,
         "campuses": int(table["campus_id"].nunique()),
         "distinct_nodes": int(table["pnode_id"].nunique()),
@@ -747,10 +800,13 @@ def main() -> None:
     candidates.to_csv(folder() / "candidates.csv", index=False)
     distinct = sorted(candidates["pnode_id"].unique())
     print(f"distinct candidate nodes: {len(distinct)}")
+    assignment = assign_umbrellas(candidates)
+    assignment.to_csv(folder() / "weather_umbrellas.csv", index=False)
+    print(f"weather umbrellas: {assignment['umbrella'].nunique()}")
     prices = _prices(distinct)
-    weather = _weather(campuses)
+    weather, filled_hours = _regional_weather(forecast_points(candidates))
     load = _load_forecast()
-    table, meta = _assemble(campuses, candidates, prices, weather, load)
+    table, meta = _assemble(campuses, candidates, prices, weather, load, assignment, filled_hours)
     meta["ungeocoded_campuses"] = missed
     dataset_path().parent.mkdir(parents=True, exist_ok=True)
     table.to_csv(dataset_path())

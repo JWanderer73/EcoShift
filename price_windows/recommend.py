@@ -1,9 +1,8 @@
 """Pick the cheapest hours for one batch job at a datacenter campus.
 
-The model only knows the clock, a weather forecast issued five days ahead,
-and prices from at least 120 hours before the target hour. The window is
-the next ``days`` times 24 hours after the last hour in the dataset whose
-120-hour lags exist. A request past five days is clamped.
+The model only predicts the day-ahead price. Weather is an input. The window
+is a job length inside the next three days after the last hour whose 120-hour
+price lag exists. A request past three days is clamped.
 
     python -m price_windows.recommend --site "Santa Clara" --duration 4 --days 5 --kw 8
 """
@@ -27,10 +26,12 @@ from price_windows.build_dataset import _calendar, dataset_path
 from price_windows.schema import (
     CALENDAR_FEATURES,
     DEFAULT_KW,
+    GAS_FEATURE,
     HORIZON_DAYS,
     LOAD_FEATURE,
     LOCAL_TZ,
     MIN_LAG_HOURS,
+    SEARCH_DAYS,
     STATIC_FEATURES,
     TARGET,
     WEATHER_FEATURES,
@@ -38,6 +39,7 @@ from price_windows.schema import (
     WEEK_LAGS,
     dlap_for_city,
     illegal_feature_names,
+    usd_per_kwh,
 )
 from price_windows.train_xgboost import predict_price
 
@@ -72,13 +74,19 @@ def job_dollars(price_usd_per_mwh: float, kw: float, duration: int) -> float:
     return float(price_usd_per_mwh) * job_kwh(kw, duration) / 1000.0
 
 
-def clamp_days(days: int) -> tuple[int, bool]:
-    """Keep the horizon inside five days. A longer request is clamped."""
+def clamp_days(days: int, limit: int = SEARCH_DAYS) -> tuple[int, bool]:
+    """Keep the search inside ``limit`` days. A longer request is clamped.
+
+    The public command uses three days. Nothing in this folder is legal past five.
+    """
     if days < 1:
         raise ValueError("days must be at least 1")
-    if days > HORIZON_DAYS:
-        return HORIZON_DAYS, True
-    return days, False
+    cap = min(int(limit), HORIZON_DAYS)
+    if cap < 1:
+        raise ValueError("days must be at least 1")
+    if days > cap:
+        return cap, True
+    return int(days), False
 
 
 def match_campuses(sites: pd.DataFrame, query: str) -> pd.DataFrame:
@@ -104,11 +112,15 @@ def cheapest_block(
     duration: int,
     start_hour: int | None,
     end_hour: int | None,
+    *,
+    range_start: pd.Timestamp | None = None,
+    range_end: pd.Timestamp | None = None,
 ) -> dict | None:
     """The contiguous block with the lowest average price, or None.
 
     ``start_hour`` and ``end_hour`` are inclusive Pacific clock hours. A
-    block that would run outside that range is skipped. Prices are not
+    block that would run outside that daily range is skipped. ``range_start``
+    and ``range_end`` bound the hours the job may occupy. Prices are not
     clipped: a negative hour can win.
     """
     prices = np.asarray(prices, dtype=float)
@@ -123,9 +135,14 @@ def cheapest_block(
         hours = local[start : start + duration].hour.to_numpy()
         if not _inside_clock(hours, start_hour, end_hour):
             continue
+        start_time = index[start]
+        last_time = index[start + duration - 1]
+        if range_start is not None and start_time < range_start:
+            continue
+        if range_end is not None and last_time > range_end:
+            continue
         average = float(block.mean())
         if best is None or average < best["average_usd_per_mwh"]:
-            start_time = index[start]
             best = {
                 "average_usd_per_mwh": average,
                 "window_start_utc": start_time,
@@ -153,8 +170,10 @@ def format_report(result: dict) -> str:
         f"campus: {result['name']}",
         f"        {result['street']}, {result['city']} ({result['campus_id']})",
     ]
-    if result["clamped_to_5_days"]:
-        lines.append("days clamped to 5, because no feature is legal past five days")
+    if result["clamped_to_3_days"]:
+        lines.append("days clamped to 3")
+    if result.get("range_clamped"):
+        lines.append("range clamped to the next 3 days")
     lines.append(
         f"job: {result['kw']:g} kW for {result['duration_hours']} hours ({result['job_kwh']:g} kWh)"
     )
@@ -162,7 +181,10 @@ def format_report(result: dict) -> str:
         f"horizon: {result['horizon_start_utc']} to {result['horizon_end_utc']} UTC "
         f"({result['horizon_hours']} hours)"
     )
-    lines.append("price: dollars per megawatt-hour. Job cost is the average price times kWh, divided by 1000.")
+    lines.append(
+        "price: dollars per kilowatt-hour. The model predicts the day-ahead $/MWh price and this divides it by 1000."
+    )
+    lines.append("job cost: that price per kWh times the job's kWh.")
     if result.get("load_note"):
         lines.append(result["load_note"])
     for option in result["options"]:
@@ -174,7 +196,7 @@ def format_report(result: dict) -> str:
             continue
         lines.append(f"  window: {option['window_start_pacific']} to {option['window_end_pacific']} Pacific")
         lines.append(f"          {option['window_start_utc']} to {option['window_end_utc']} UTC")
-        lines.append(f"  average: {option['average_usd_per_mwh']:.2f} $/MWh")
+        lines.append(f"  average: {usd_per_kwh(option['average_usd_per_mwh']):.5f} $/kWh")
         lines.append(f"  job: {option['job_dollars']:.2f} dollars")
     winner = result["winner"]
     if winner is None:
@@ -182,7 +204,7 @@ def format_report(result: dict) -> str:
     else:
         lines.append(
             f"winner: rank {winner['rank']} {winner['pnode_id']}  "
-            f"average {winner['average_usd_per_mwh']:.2f} $/MWh  "
+            f"average {usd_per_kwh(winner['average_usd_per_mwh']):.5f} $/kWh  "
             f"job {winner['job_dollars']:.2f} dollars"
         )
     lines.append(result["dlap_line"])
@@ -196,6 +218,8 @@ def recommend(
     kw: float = DEFAULT_KW,
     start_hour: int | None = None,
     end_hour: int | None = None,
+    range_start: str | pd.Timestamp | None = None,
+    range_end: str | pd.Timestamp | None = None,
     *,
     table: pd.DataFrame | None = None,
     sites: pd.DataFrame | None = None,
@@ -203,13 +227,16 @@ def recommend(
     saved: dict | None = None,
     weather: pd.DataFrame | None = None,
     load: pd.Series | None = None,
+    umbrellas: pd.DataFrame | None = None,
+    gas: pd.Series | None = None,
+    horizon_limit: int = SEARCH_DAYS,
 ) -> dict:
     """Score the campus nodes and keep the cheapest block for the job.
 
     Args:
         site: Campus id, city, or street. Several matches are listed instead of guessed.
         duration: How many hours the job needs.
-        days: How many days ahead to search. Clamped at five.
+        days: How many days ahead to search. Clamped at three.
         kw: Cabinet power. The default is the 8 kW Inflect cabinet.
         start_hour: Earliest Pacific clock hour the block may occupy, inclusive.
         end_hour: Latest Pacific clock hour the block may occupy, inclusive.
@@ -228,7 +255,8 @@ def recommend(
     if kw <= 0:
         raise ValueError("kw must be positive")
     _check_clock(start_hour, end_hour)
-    horizon_days, clamped = clamp_days(days)
+    horizon_days, clamped = clamp_days(days, horizon_limit)
+    search_cap = min(int(horizon_limit), HORIZON_DAYS)
     if horizon_days * 24 < duration:
         raise ValueError("the job is longer than the horizon")
     if sites is None:
@@ -246,21 +274,42 @@ def recommend(
     if leaked:
         raise ValueError(f"model features are not legal five days ahead: {leaked}")
     hours = _horizon(table, horizon_days)
+    range_start_utc, range_end_utc, range_clamped = _clip_range(hours, range_start, range_end)
     nodes = candidates.loc[candidates["campus_id"].astype(str) == str(campus["campus_id"])].sort_values("rank")
     if nodes.empty:
         raise ValueError(f"no candidate nodes for {campus['campus_id']}")
-    weather_frame = _resolve_weather(features, campus, hours, weather)
+    needs_weather = any(name in _METEO for name in features)
+    if umbrellas is None and needs_weather and weather is None:
+        umbrellas = _read_umbrellas()
     load_series, load_note = _resolve_load(features, hours, load)
+    weather_cache: dict[tuple[float, float], pd.DataFrame | None] = {}
     options = []
     for node in nodes.itertuples(index=False):
+        if weather is not None or not needs_weather:
+            node_weather = weather
+        else:
+            latitude, longitude = _node_forecast_point(node, umbrellas, campus)
+            key = (round(latitude, 4), round(longitude, 4))
+            if key not in weather_cache:
+                weather_cache[key] = _resolve_weather(features, latitude, longitude, hours, None)
+            node_weather = weather_cache[key]
         prices = _prices(table, node.pnode_id)
-        built = _feature_frame(hours, prices, _static(node), weather_frame, load_series, features)
+        built = _feature_frame(hours, prices, _static(node), node_weather, load_series, features, gas=gas)
         predicted = predict_price(saved, built)
-        required = [name for name in features if name != LOAD_FEATURE]
+        # Load and the lagged gas print may be missing. The other features may not.
+        required = [name for name in features if name not in {LOAD_FEATURE, GAS_FEATURE}]
         missing = built.loc[:, required].isna().any(axis=1).to_numpy()
         predicted = np.asarray(predicted, dtype=float)
         predicted[missing] = np.nan
-        chosen = cheapest_block(hours, predicted, duration, start_hour, end_hour)
+        chosen = cheapest_block(
+            hours,
+            predicted,
+            duration,
+            start_hour,
+            end_hour,
+            range_start=range_start_utc,
+            range_end=range_end_utc,
+        )
         options.append(_option(node, chosen, kw, duration))
     ranked = [row for row in options if row["average_usd_per_mwh"] is not None]
     winner = min(ranked, key=lambda row: (row["average_usd_per_mwh"], row["rank"], row["pnode_id"])) if ranked else None
@@ -278,7 +327,10 @@ def recommend(
         "horizon_hours": int(len(hours)),
         "horizon_start_utc": str(hours[0]),
         "horizon_end_utc": str(hours[-1]),
-        "clamped_to_5_days": clamped,
+        "clamped_to_3_days": bool(clamped and search_cap == SEARCH_DAYS),
+        "range_clamped": range_clamped,
+        "range_start_utc": str(range_start_utc),
+        "range_end_utc": str(range_end_utc),
         "kw": kw,
         "job_kwh": job_kwh(kw, duration),
         "load_note": load_note,
@@ -394,7 +446,7 @@ def _static(node) -> dict[str, float]:
     }
 
 
-def _feature_frame(hours, prices, static, weather, load, features: list[str]) -> pd.DataFrame:
+def _feature_frame(hours, prices, static, weather, load, features: list[str], gas=None) -> pd.DataFrame:
     frame = _calendar(hours)
     for name in features:
         if name in CALENDAR_FEATURES:
@@ -425,17 +477,68 @@ def _feature_frame(hours, prices, static, weather, load, features: list[str]) ->
             else:
                 frame[name] = pd.to_numeric(load, errors="coerce").reindex(hours)
             continue
+        if name == GAS_FEATURE:
+            if gas is None or gas.empty:
+                frame[name] = np.nan
+            else:
+                frame[name] = pd.to_numeric(gas, errors="coerce").reindex(hours)
+            continue
         raise ValueError(f"no way to build feature {name!r} for an hour after the dataset")
     return frame
 
 
-def _resolve_weather(features, campus, hours, weather: pd.DataFrame | None) -> pd.DataFrame | None:
+def _as_pacific(value: str | pd.Timestamp) -> pd.Timestamp:
+    stamp = pd.Timestamp(value)
+    if stamp.tzinfo is None:
+        return stamp.tz_localize(LOCAL_TZ)
+    return stamp.tz_convert(LOCAL_TZ)
+
+
+def _clip_range(hours: pd.DatetimeIndex, range_start, range_end) -> tuple[pd.Timestamp, pd.Timestamp, bool]:
+    """Keep the job inside the searched hours. A time outside them is clamped."""
+    bound_start = pd.Timestamp(hours[0])
+    bound_end = pd.Timestamp(hours[-1])
+    if range_start is None and range_end is None:
+        return bound_start, bound_end, False
+    if range_start is None or range_end is None:
+        raise ValueError("pass both --range-start and --range-end, or neither")
+    start = _as_pacific(range_start).tz_convert("UTC")
+    end = _as_pacific(range_end).tz_convert("UTC")
+    if end < start:
+        raise ValueError("range-end is earlier than range-start")
+    clamped = bool(start < bound_start or end > bound_end)
+    if start < bound_start:
+        start = bound_start
+    if end > bound_end:
+        end = bound_end
+    if end < start:
+        raise ValueError("the range is outside the next 3 days")
+    return start, end, clamped
+
+
+def _read_umbrellas() -> pd.DataFrame | None:
+    path = dataset_path().parent / "weather_umbrellas.csv"
+    if not path.exists():
+        return None
+    return pd.read_csv(path)
+
+
+def _node_forecast_point(node, umbrellas: pd.DataFrame | None, campus: pd.Series) -> tuple[float, float]:
+    """The umbrella coordinate the training row used for this node."""
+    if umbrellas is not None and "pnode_id" in umbrellas.columns:
+        match = umbrellas.loc[umbrellas["pnode_id"].astype(str) == str(node.pnode_id)]
+        if not match.empty:
+            return float(match.iloc[0]["umbrella_latitude"]), float(match.iloc[0]["umbrella_longitude"])
+    return float(campus["latitude"]), float(campus["longitude"])
+
+
+def _resolve_weather(features, latitude: float, longitude: float, hours, weather: pd.DataFrame | None) -> pd.DataFrame | None:
     needed = [name for name in features if name in _METEO]
     if not needed:
         return weather
     if weather is not None:
         return weather
-    return _fetch_weather(float(campus["latitude"]), float(campus["longitude"]), hours, needed)
+    return _fetch_weather(float(latitude), float(longitude), hours, needed)
 
 
 def _resolve_load(features, hours, load: pd.Series | None) -> tuple[pd.Series | None, str | None]:
@@ -599,13 +702,24 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Recommend the cheapest hours at the nearest P-nodes.")
     parser.add_argument("--site", required=True, help="campus id, city, or street")
     parser.add_argument("--duration", type=int, required=True, help="job length in hours")
-    parser.add_argument("--days", type=int, default=HORIZON_DAYS, help="how many days ahead to search; above 5 is clamped")
+    parser.add_argument("--days", type=int, default=SEARCH_DAYS, help="how many days ahead to search; above 3 is clamped")
     parser.add_argument("--kw", type=float, default=DEFAULT_KW, help="cabinet power in kW, default 8")
     parser.add_argument("--start-hour", type=int, default=None, help="earliest Pacific clock hour the block may occupy")
     parser.add_argument("--end-hour", type=int, default=None, help="latest Pacific clock hour the block may occupy")
+    parser.add_argument("--range-start", default=None, help="earliest Pacific time the job may occupy, inside the next 3 days")
+    parser.add_argument("--range-end", default=None, help="latest Pacific time the job may occupy, inside the next 3 days")
     args = parser.parse_args()
     try:
-        result = recommend(args.site, args.duration, args.days, args.kw, args.start_hour, args.end_hour)
+        result = recommend(
+            args.site,
+            args.duration,
+            args.days,
+            args.kw,
+            args.start_hour,
+            args.end_hour,
+            args.range_start,
+            args.range_end,
+        )
     except AmbiguousSite as exc:
         _print_matches(exc.query, exc.matches)
         raise SystemExit(2) from exc
