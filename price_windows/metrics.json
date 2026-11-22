@@ -5,39 +5,39 @@
   "percent_error_min_price_usd_per_mwh": 5.0,
   "clipped_at_zero": false,
   "trials": 40,
-  "pruned_trials": 4,
+  "pruned_trials": 7,
   "best_params": {
     "objective": "reg:absoluteerror",
     "max_depth": 3,
-    "learning_rate": 0.09753641969431748,
-    "n_estimators": 262,
-    "min_child_weight": 1.6907576612170077,
-    "subsample": 0.6796854503537466,
-    "colsample_bytree": 0.7845447798914489,
-    "reg_lambda": 0.3687065272542283,
-    "reg_alpha": 9.638002129136983e-06,
-    "gamma": 3.795856649279734
+    "learning_rate": 0.04884246274247253,
+    "n_estimators": 275,
+    "min_child_weight": 1.862449707802038,
+    "subsample": 0.644150056465722,
+    "colsample_bytree": 0.8281647947326367,
+    "reg_lambda": 0.003570522756718293,
+    "reg_alpha": 5.878157996648644e-07,
+    "gamma": 1.8436258533048204
   },
-  "cv_mae_usd_per_mwh": 9.220161011164311,
-  "search_seconds": 6842.485576,
+  "cv_mae_usd_per_mwh": 9.464731931849867,
+  "search_seconds": 5708.079019958001,
   "train_rows": 7871292,
   "test_rows": 668146,
   "train_end": "2026-10-17 23:00:00+00:00",
   "test_start": "2026-10-18 00:00:00+00:00",
-  "dataset_hash": "689474ed3891a006",
+  "dataset_hash": "d3bb9e6f7fcbf1c3",
   "train": {
-    "mae_usd_per_mwh": 5.413879883921375,
-    "rmse_usd_per_mwh": 12.840925751179602,
-    "percent_error_mean": 15.539139912407023,
-    "percent_error_median": 7.726667897990857
+    "mae_usd_per_mwh": 6.046534397119547,
+    "rmse_usd_per_mwh": 13.55553872457416,
+    "percent_error_mean": 17.476515161781386,
+    "percent_error_median": 8.603426902521647
   },
   "test": {
-    "mae_usd_per_mwh": 7.373082861773663,
-    "rmse_usd_per_mwh": 10.613588133899158,
-    "percent_error_mean": 16.593229882089467,
-    "percent_error_median": 10.438262638101467
+    "mae_usd_per_mwh": 7.298710904844265,
+    "rmse_usd_per_mwh": 10.58148128864052,
+    "percent_error_mean": 16.306306825706926,
+    "percent_error_median": 10.155962635792575
   },
-  "test_regret_4h_usd_per_mwh": 2.1240833855092767,
+  "test_regret_4h_usd_per_mwh": 2.137632626981059,
   "baselines_test": [
     {
       "name": "same hour last week",
