@@ -11,7 +11,7 @@ import logging
 from carbon.common import keys
 from carbon.common.store import Store, get_store
 from carbon.common.timeutil import iso, utcnow
-from carbon.config import get_settings
+from carbon.config import PRICE_MODEL, get_settings
 from carbon.jobs._util import load_history, maybe_fail, run_main
 from carbon.model import load_model, mae
 
@@ -27,6 +27,10 @@ def run(store: Store | None = None) -> dict:
     maybe_fail("gate")
     store = store or get_store()
     settings = get_settings()
+    if settings.model == PRICE_MODEL:
+        from carbon.price import run as price_run
+
+        return price_run.gate(store)
     horizon = settings.horizon_hours
     summary = {}
     for location in settings.locations:

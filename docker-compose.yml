@@ -12,11 +12,11 @@ services:
     volumes: ["./.local:/app/.local"]
 
   dashboard:
-    build: .
-    command: ["streamlit", "run", "dashboard/app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    build:
+      context: frontend
+      args:
+        API_PROXY_URL: http://api:8000 # the browser calls /v1/* on this origin; Next forwards it
     ports: ["8501:8501"]
-    environment:
-      API_URL: http://api:8000
     depends_on: [api]
 
   pipeline:

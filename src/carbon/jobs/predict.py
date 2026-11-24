@@ -15,7 +15,7 @@ import numpy as np
 from carbon.common import keys
 from carbon.common.store import Store, get_store
 from carbon.common.timeutil import HOUR, iso, utcnow
-from carbon.config import get_settings
+from carbon.config import PRICE_MODEL, get_settings
 from carbon.jobs._util import load_history, maybe_fail, run_main
 from carbon.model import History, Model, load_model
 from carbon.model.models import SeasonalNaive
@@ -28,9 +28,7 @@ def _write(store: Store, location: str, version: str, model: Model, history: His
     rows = [
         {
             "ts": iso(history.end + k * HOUR),
-            "intensity": round(float(max(fc.p50[k], 0.0)), 2),
-            "p10": round(float(max(fc.p10[k], 0.0)), 2),
-            "p90": round(float(max(fc.p90[k], 0.0)), 2),
+            "price": round(float(fc.p50[k]), 2),  # $/MWh; negative prices are real, so no clipping
         }
         for k in range(horizon)
     ]
@@ -45,6 +43,10 @@ def run(store: Store | None = None) -> dict:
     maybe_fail("predict")
     store = store or get_store()
     settings = get_settings()
+    if settings.model == PRICE_MODEL:
+        from carbon.price import run as price_run
+
+        return price_run.predict(store)
     now = utcnow()
     generated_at = iso(now)
     horizon = settings.horizon_hours
@@ -87,6 +89,7 @@ def run(store: Store | None = None) -> dict:
             "shadow_model_versions": shadow,
             "fallback": fallback,
             "imputed_fraction": imputed,
+            "data_source": "synthetic",
             "updated_at": generated_at,
         }
     )

@@ -36,7 +36,7 @@ class Store(ABC):
         data = self.get_blob(key)
         return None if data is None else json.loads(data)
 
-    # --- forecasts: rows are {"ts", "intensity", "p10", "p90"} ---
+    # --- forecasts: rows are {"ts", "price"} plus optional "kind" and "nodes" (price model) ---
     @abstractmethod
     def put_forecast(self, location: str, version: str, generated_at: str, rows: list[dict]) -> None: ...
 
@@ -176,7 +176,8 @@ class AwsStore(Store):
         if not items:
             return None
         items = [_from_ddb(i) for i in items]
-        rows = [{k: i[k] for k in ("ts", "intensity", "p10", "p90")} for i in items]
+        bookkeeping = {"location", "sk", "model_version", "generated_at"}
+        rows = [{k: v for k, v in i.items() if k not in bookkeeping} for i in items]
         return {"generated_at": items[0]["generated_at"], "rows": sorted(rows, key=lambda r: r["ts"])}
 
     def get_status(self):

@@ -42,6 +42,8 @@ data "aws_cloudwatch_log_group" "ecs" {
 
 locals {
   image = "${data.aws_ecr_repository.app.repository_url}:${var.image_tag}"
+  # The dashboard is the Next.js app in frontend/, pushed to the same repository as "web-<tag>".
+  web_image = "${data.aws_ecr_repository.app.repository_url}:web-${var.image_tag}"
 
   app_env = [
     { name = "AWS_REGION", value = var.aws_region },
@@ -49,7 +51,9 @@ locals {
     { name = "CARBON_FORECASTS_TABLE", value = "${var.project}-forecasts" },
     { name = "CARBON_STATUS_TABLE", value = "${var.project}-status" },
     { name = "CARBON_ARTIFACTS_BUCKET", value = "${var.project}-artifacts-${data.aws_caller_identity.current.account_id}" },
+    { name = "CARBON_MODEL", value = var.model },
     { name = "CARBON_LOCATIONS", value = var.locations },
+    { name = "PRICE_MODEL_DIR", value = "/app/price_model" },
     { name = "CARBON_STALE_AFTER_HOURS", value = tostring(var.stale_after_hours) },
   ]
 
@@ -142,7 +146,7 @@ resource "aws_lb_target_group" "dashboard" {
   deregistration_delay = 10
 
   health_check {
-    path     = "/_stcore/health"
+    path     = "/"
     matcher  = "200"
     interval = 15
   }
@@ -245,17 +249,13 @@ resource "aws_ecs_task_definition" "dashboard" {
   }
 
   container_definitions = jsonencode([{
-    name      = "dashboard"
-    image     = local.image
-    essential = true
-    command = [
-      "streamlit", "run", "dashboard/app.py",
-      "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true",
-    ]
+    name         = "dashboard"
+    image        = local.web_image
+    essential    = true
     portMappings = [{ containerPort = 8501, protocol = "tcp" }]
     environment = [
-      { name = "API_URL", value = "http://${aws_lb.main.dns_name}" },
-      { name = "DEFAULT_LOCATION", value = split(",", var.locations)[0] },
+      { name = "PORT", value = "8501" },
+      { name = "HOSTNAME", value = "0.0.0.0" },
     ]
     logConfiguration = {
       logDriver = "awslogs"

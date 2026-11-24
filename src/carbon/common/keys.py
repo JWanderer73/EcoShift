@@ -28,3 +28,17 @@ def archive_prefix(location: str, version: str) -> str:
 def archive(location: str, version: str, generated_at: str) -> str:
     """Every forecast run is archived so accuracy can be scored against later actuals."""
     return archive_prefix(location, version) + generated_at.replace(":", "") + ".json"
+
+
+# --- the delivered price model: one shared price table and model, not one per location ---
+PRICE_TABLE = "price/prices.json"
+PRICE_CANDIDATE = "price/candidate.json"
+PRICE_CHAMPION = "price/champion.json"
+
+
+def price_model(version: str) -> str:
+    return f"price/models/{version}/model.joblib"
+
+
+def price_metrics(version: str) -> str:
+    return f"price/models/{version}/metrics.json"

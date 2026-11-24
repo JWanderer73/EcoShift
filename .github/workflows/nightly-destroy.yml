@@ -1,0 +1,33 @@
+name: nightly-destroy
+
+# The ALB bills by the hour, so the serving stack is destroyed every night.
+# Opt in by setting the repository variable NIGHTLY_DESTROY to "true".
+# Turn it off (or skip the night) before a demo. Re-create with the deploy workflow.
+on:
+  schedule:
+    - cron: "0 9 * * *" # 09:00 UTC
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency: terraform
+
+jobs:
+  destroy-serving:
+    if: ${{ vars.NIGHTLY_DESTROY == 'true' && vars.AWS_ROLE_ARN != '' }}
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-arn: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+      - run: ./scripts/tf.sh serving destroy -auto-approve

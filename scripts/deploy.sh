@@ -24,6 +24,11 @@ case "$action" in
     docker build --platform linux/amd64 -t "$registry/carbon-windows:$tag" -t "$registry/carbon-windows:latest" .
     docker push --all-tags "$registry/carbon-windows"
 
+    # Dashboard: the Next.js app, same ECR repository, tag "web-<tag>". It calls /v1/* on its own origin.
+    docker build --platform linux/amd64 \
+      -t "$registry/carbon-windows:web-$tag" -t "$registry/carbon-windows:web-latest" frontend
+    docker push --all-tags "$registry/carbon-windows"
+
     scripts/tf.sh training apply -auto-approve -var "image_tag=$tag"
     scripts/tf.sh serving apply -auto-approve -var "image_tag=$tag"
     scripts/run_pipeline.sh

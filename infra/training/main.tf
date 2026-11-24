@@ -88,7 +88,9 @@ resource "aws_ecs_task_definition" "jobs" {
       { name = "CARBON_FORECASTS_TABLE", value = "${var.project}-forecasts" },
       { name = "CARBON_STATUS_TABLE", value = local.status_table },
       { name = "CARBON_ARTIFACTS_BUCKET", value = "${var.project}-artifacts-${data.aws_caller_identity.current.account_id}" },
+      { name = "CARBON_MODEL", value = var.model },
       { name = "CARBON_LOCATIONS", value = var.locations },
+      { name = "PRICE_MODEL_DIR", value = "/app/price_model" },
       { name = "FAIL_STEP", value = var.fail_step },
     ]
     logConfiguration = {

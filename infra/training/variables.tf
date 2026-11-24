@@ -14,19 +14,19 @@ variable "image_tag" {
 }
 
 variable "locations" {
-  description = "Comma-separated location ids the pipeline processes."
+  description = "Comma-separated campus ids. Empty means every campus in the price model."
   type        = string
-  default     = "demo-region"
+  default     = ""
 }
 
 variable "job_cpu" {
   type    = number
-  default = 512
+  default = 1024
 }
 
 variable "job_memory" {
   type    = number
-  default = 1024
+  default = 4096
 }
 
 variable "schedules_enabled" {
@@ -36,25 +36,31 @@ variable "schedules_enabled" {
 }
 
 variable "pipeline_schedule" {
-  description = "Refresh cadence. Also settable from config; 3 hours is a placeholder."
+  description = "Refresh cadence. Also settable from config; CAISO day-ahead prices are published once a day."
   type        = string
-  default     = "rate(3 hours)"
+  default     = "rate(1 day)"
 }
 
 variable "mae_alarm_threshold" {
   description = "Rolling MAE above this raises an alert and starts an extra retrain."
   type        = number
-  default     = 40
+  default     = 15
 }
 
 variable "default_location" {
-  description = "Location the accuracy alarm watches."
+  description = "Location the accuracy alarm watches (the price model publishes one fleet-wide series, Location=all)."
   type        = string
-  default     = "demo-region"
+  default     = "all"
 }
 
 variable "fail_step" {
   description = "Demo only: name of a step (ingest, train, gate, predict) that should crash on purpose."
   type        = string
   default     = ""
+}
+
+variable "model" {
+  description = "price_xgb = the delivered CAISO day-ahead price model; stub = synthetic demo models."
+  type        = string
+  default     = "price_xgb"
 }

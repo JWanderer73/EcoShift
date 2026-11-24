@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "carbon-windows"
 version = "0.1.0"
-description = "Find the lowest-emission time windows for heavy workloads"
+description = "Find the cheapest time windows (CAISO electricity prices) for heavy workloads"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.110",
@@ -18,7 +18,8 @@ dependencies = [
 
 [project.optional-dependencies]
 cli = ["typer>=0.12", "rich>=13"]
-dashboard = ["streamlit>=1.50"]
+# The delivered price model (price_model/) and what it imports.
+price = ["pandas>=2.2", "scikit-learn>=1.4", "xgboost>=2.0", "optuna>=4.0", "python-dotenv>=1.0", "joblib>=1.3"]
 dev = ["pytest>=8", "moto[dynamodb,s3,cloudwatch]>=5"]
 
 [project.scripts]

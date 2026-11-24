@@ -1,48 +1,51 @@
 {
   "location": "demo-region",
+  "node": null,
   "generated_at": "2026-10-27T14:30:00Z",
   "model_version": "baseline-20261027T143000",
+  "data_source": "synthetic",
+  "unit": "usd_per_mwh",
   "stale": false,
   "request": {
     "duration_hours": 4,
-    "max_delay_hours": 44
+    "max_delay_hours": 44,
+    "kw": 8.0
   },
-  "run_now_avg": 263.3,
+  "run_now_avg": 43.89,
+  "run_now_cost_usd": 1.4045,
   "best": {
     "start": "2026-10-28T12:00:00Z",
     "end": "2026-10-28T16:00:00Z",
     "wait_minutes": 1320,
-    "avg": 212.9,
-    "avg_p10": 195.2,
-    "avg_p90": 229.7,
-    "savings_pct": 19.2
+    "avg": 35.49,
+    "cost_usd": 1.1355,
+    "savings_usd": 0.269
   },
   "alternatives": [
     {
       "start": "2026-10-29T10:00:00Z",
       "end": "2026-10-29T14:00:00Z",
       "wait_minutes": 2640,
-      "avg": 230.2,
-      "avg_p10": 212.5,
-      "avg_p90": 247.0,
-      "savings_pct": 12.6
+      "avg": 38.37,
+      "cost_usd": 1.2278,
+      "savings_usd": 0.1766
     }
   ],
   "savings_by_max_wait": [
     {
       "max_wait_hours": 3,
       "wait_minutes": 0,
-      "savings_pct": 0.0
+      "savings_usd": 0.0
     },
     {
       "max_wait_hours": 12,
       "wait_minutes": 0,
-      "savings_pct": 0.0
+      "savings_usd": 0.0
     },
     {
       "max_wait_hours": 24,
       "wait_minutes": 1320,
-      "savings_pct": 19.2
+      "savings_usd": 0.269
     }
   ],
   "recommendation": "delay",

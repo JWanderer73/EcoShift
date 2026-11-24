@@ -1,4 +1,4 @@
-"""carbon-windows: find the lowest-emission time to run a heavy job.
+"""carbon-windows: find the cheapest time (CAISO day-ahead price, $/MWh) to run a heavy job.
 
 Output is a table by default and JSON with --json (for coding agents).
 
@@ -28,7 +28,7 @@ EXIT_UNREACHABLE, EXIT_STALE, EXIT_API_ERROR = 3, 4, 5
 UNTRUSTED = {"forecast_stale", "pipeline_failed"}
 
 LocationOpt = typer.Option(
-    lambda: os.environ.get("CARBON_LOCATION", "demo-region"), "--location", "-l", help="Location id (env CARBON_LOCATION)."
+    lambda: os.environ.get("CARBON_LOCATION", "demo-region"), "--location", "-l", help="Location id: a campus id (env CARBON_LOCATION). See `sites`."
 )
 JsonOpt = typer.Option(False, "--json", help="Print JSON instead of a table.")
 AllowStaleOpt = typer.Option(False, "--allow-stale", help="Exit 0 even if the data is stale or the pipeline failed.")
@@ -76,30 +76,36 @@ def best(
     deadline: Optional[str] = typer.Option(None, "--deadline", help="ISO time the job must finish by."),
     location: str = LocationOpt,
     top: int = typer.Option(3, "--top", min=1, max=5),
+    kw: Optional[float] = typer.Option(None, "--kw", min=0.001, help="Constant load in kW (default 8)."),
+    node: Optional[str] = typer.Option(None, "--node", help="Price at this pricing node instead of the nearest."),
     as_json: bool = JsonOpt,
     allow_stale: bool = AllowStaleOpt,
 ):
     """Best windows to run a job of --duration hours."""
     data = _get(
         "/v1/windows",
-        {"location": location, "duration_hours": duration, "max_wait": max_wait, "deadline": deadline, "top": top},
+        {
+            "location": location, "node": node, "duration_hours": duration, "max_wait": max_wait,
+            "deadline": deadline, "top": top, "kw": kw,
+        },
     )
     if as_json:
         typer.echo(json.dumps(data))
     else:
         b = data["best"]
         if data["recommendation"] == "delay":
-            console.print(f"[bold]Delay {_hours(b['wait_minutes'])}[/bold]: saves {b['savings_pct']}% CO2 vs running now")
+            console.print(f"[bold]Delay {_hours(b['wait_minutes'])}[/bold]: saves ${b['savings_usd']:.2f} vs running now")
         else:
             console.print("[bold]Run now[/bold]: waiting would not save enough to matter")
-        table = Table("#", "Start (UTC)", "End (UTC)", "Wait", "Avg", "Range", "Saves")
+        table = Table("#", "Start (UTC)", "End (UTC)", "Wait", "$/MWh", "Cost", "Saves")
         for i, w in enumerate([b, *data["alternatives"]], 1):
             table.add_row(
                 str(i), _short(w["start"]), _short(w["end"]), _hours(w["wait_minutes"]), f"{w['avg']}",
-                f"{w['avg_p10']}-{w['avg_p90']}", f"{w['savings_pct']}%",
+                f"${w['cost_usd']:.2f}", f"${w['savings_usd']:.2f}",
             )
         console.print(table)
-        console.print(f"Forecast {data['model_version']} generated {data['generated_at']}")
+        console.print(f"Job: {data['request']['kw']:g} kW for {data['request']['duration_hours']} h. Run now: ${data['run_now_cost_usd']:.2f}")
+        console.print(f"Forecast {data['model_version']} ({data['data_source']}) generated {data['generated_at']}")
         for w in data["warnings"]:
             console.print(f"[yellow]warning:[/yellow] {w}")
     _finish(data, allow_stale)
@@ -107,23 +113,37 @@ def best(
 
 @app.command()
 def forecast(
-    hours: int = typer.Option(48, "--hours", min=1, max=168),
+    hours: Optional[int] = typer.Option(None, "--hours", min=1, max=240, help="Limit to the next N hours."),
     location: str = LocationOpt,
+    node: Optional[str] = typer.Option(None, "--node", help="Price at this pricing node instead of the nearest."),
     as_json: bool = JsonOpt,
     allow_stale: bool = AllowStaleOpt,
 ):
-    """Hourly forecast with an uncertainty range."""
-    data = _get("/v1/forecast", {"location": location, "hours": hours})
+    """Hourly price: published day-ahead prices first, then the model's forecast."""
+    data = _get("/v1/forecast", {"location": location, "node": node, "hours": hours})
     if as_json:
         typer.echo(json.dumps(data))
     else:
-        table = Table("Hour (UTC)", "Intensity", "Range")
+        table = Table("Hour (UTC)", "$/MWh", "Kind")
         for r in data["rows"]:
-            table.add_row(_short(r["ts"]), f"{r['intensity']}", f"{r['p10']}-{r['p90']}")
+            table.add_row(_short(r["ts"]), f"{r['price']}", r.get("kind", ""))
         console.print(table)
         for w in data["warnings"]:
             console.print(f"[yellow]warning:[/yellow] {w}")
     _finish(data, allow_stale)
+
+
+@app.command()
+def sites(as_json: bool = JsonOpt):
+    """Places that can be forecast (datacenter campuses for the price model)."""
+    data = _get("/v1/sites")
+    if as_json:
+        typer.echo(json.dumps(data))
+    else:
+        table = Table("Location id", "Name", "City")
+        for s in data["sites"]:
+            table.add_row(s["location"], s["name"], s["city"])
+        console.print(table)
 
 
 @app.command()

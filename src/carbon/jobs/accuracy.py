@@ -11,7 +11,7 @@ import logging
 from carbon.common import keys
 from carbon.common.store import Store, get_store
 from carbon.common.timeutil import HOUR, iso, parse_iso, utcnow
-from carbon.config import get_settings
+from carbon.config import PRICE_MODEL, get_settings
 from carbon.jobs._util import load_history, run_main
 
 log = logging.getLogger(__name__)
@@ -29,13 +29,17 @@ def score(store: Store, location: str, version: str, history, now) -> tuple[floa
         for row in archive["rows"]:
             i = int((parse_iso(row["ts"]) - history.start) / HOUR)
             if 0 <= i < len(history):  # the actual for this hour has arrived
-                errors.append(abs(row["intensity"] - float(history.values[i])))
+                errors.append(abs(row["price"] - float(history.values[i])))
     return (sum(errors) / len(errors), len(errors)) if errors else None
 
 
 def run(store: Store | None = None) -> dict:
     store = store or get_store()
     settings = get_settings()
+    if settings.model == PRICE_MODEL:
+        from carbon.price import run as price_run
+
+        return price_run.accuracy(store)
     status = store.get_status()
     now = utcnow()
     summary: dict = {}

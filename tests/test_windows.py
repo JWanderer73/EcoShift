@@ -1,4 +1,4 @@
-from carbon.common.windows import best_windows, window_averages
+from carbon.common.windows import best_windows, job_dollars, window_averages
 
 
 def test_picks_the_lowest_average_window():
@@ -8,9 +8,18 @@ def test_picks_the_lowest_average_window():
     assert best["avg"] == 1
 
 
-def test_savings_are_relative_to_starting_now():
+def test_savings_are_dollars_per_mwh_below_starting_now():
     best = best_windows([10, 10, 5, 5], duration=2, max_delay=2, top=1)[0]
-    assert best["savings_pct"] == 50.0
+    assert best["savings"] == 5.0
+
+
+def test_negative_prices_win_and_savings_stay_defined():
+    best = best_windows([-5, -5, -20, -20], duration=2, max_delay=2, top=1)[0]
+    assert best["avg"] == -20 and best["savings"] == 15.0
+
+
+def test_job_dollars():
+    assert job_dollars(40, kw=8, duration=4) == 1.28  # the 8 kW cabinet for 4 hours at 40 $/MWh
 
 
 def test_windows_do_not_overlap():

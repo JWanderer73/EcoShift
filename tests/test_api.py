@@ -19,18 +19,46 @@ def test_forecast_rows_start_at_the_current_hour(client, seeded):
     body = client.get("/v1/forecast", params={"hours": 24}).json()
     assert len(body["rows"]) == 24
     assert body["rows"][0]["ts"] == "2026-10-27T14:00:00Z"
+    assert set(body["rows"][0]) == {"ts", "price"} and body["unit"] == "usd_per_mwh"
     assert body["warnings"] == [] and body["stale"] is False
 
 
 def test_windows_shape_and_recommendation(client, seeded):
     body = client.get("/v1/windows", params={"duration_hours": 4, "max_wait": "1d"}).json()
     assert body["recommendation"] in {"run_now", "delay"}
-    assert body["best"]["savings_pct"] >= max(w["savings_pct"] for w in body["alternatives"] or [body["best"]])
+    assert body["unit"] == "usd_per_mwh" and body["data_source"] == "synthetic"
+    assert body["best"]["savings_usd"] >= max(w["savings_usd"] for w in body["alternatives"] or [body["best"]])
     assert [s["max_wait_hours"] for s in body["savings_by_max_wait"]] == [3, 12, 24]
-    assert body["request"]["max_delay_hours"] == 24
+    assert body["request"]["max_delay_hours"] == 24 and body["request"]["kw"] == 8
     # waiting longer can never be worse than waiting less
-    saved = [s["savings_pct"] for s in body["savings_by_max_wait"]]
+    saved = [s["savings_usd"] for s in body["savings_by_max_wait"]]
     assert saved == sorted(saved)
+
+
+def test_dollars_are_price_times_kwh_over_1000(client, seeded):
+    body = client.get("/v1/windows", params={"duration_hours": 4, "max_wait": "1d", "kw": 100}).json()
+    best = body["best"]
+    assert best["cost_usd"] == pytest.approx(best["avg"] * 100 * 4 / 1000, abs=5e-3)
+    assert body["run_now_cost_usd"] == pytest.approx(body["run_now_avg"] * 100 * 4 / 1000, abs=5e-3)
+    assert best["savings_usd"] == pytest.approx(body["run_now_cost_usd"] - best["cost_usd"], abs=5e-3)
+
+
+def test_sites_lists_the_configured_locations(client):
+    sites = client.get("/v1/sites").json()["sites"]
+    assert [s["location"] for s in sites] == ["demo-region"]
+
+
+def test_the_price_is_not_clipped_at_zero(client, seeded):
+    """Negative prices are real CAISO hours: the dollar savings can come from them."""
+    store = get_store()
+    version = store.get_status()["current_model_versions"]["demo-region"]
+    forecast = store.get_forecast("demo-region", version)
+    for row in forecast["rows"][10:14]:
+        row["price"] = -25.0
+    store.put_forecast("demo-region", version, forecast["generated_at"], forecast["rows"])
+    body = client.get("/v1/windows", params={"duration_hours": 4, "max_wait": "1d"}).json()
+    assert body["best"]["avg"] == -25.0 and body["best"]["cost_usd"] < 0
+    assert body["recommendation"] == "delay"
 
 
 def test_deadline_limits_the_wait(client, seeded):

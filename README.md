@@ -11,7 +11,7 @@ model drop in later without touching the rest.
 ## Architecture
 
 **A. Serving.** An ALB spans two AZs and routes `/v1/*` to the API and everything else to the
-dashboard, both ECS Fargate services. The API only reads precomputed forecasts; no ML runs at
+dashboard (the Next.js app in `frontend/`), both ECS Fargate services. The API only reads precomputed forecasts; no ML runs at
 request time.
 
 ```mermaid
@@ -43,11 +43,11 @@ flowchart LR
 ## Try it locally (no AWS)
 
 ```bash
-pip install -e ".[cli,dashboard,dev]"
+pip install -e ".[cli,price,dev]"
 make seed        # run ingest -> train -> gate -> predict with stub data
 make api         # http://localhost:8000/docs
 carbon-windows best --duration 4 --max-wait 1d
-make dashboard   # http://localhost:8501 (in another terminal, with the API running)
+make web         # Next.js UI, http://localhost:3000 (proxies /v1/* to the API on :8000)
 make test
 ```
 
@@ -64,7 +64,7 @@ src/carbon/
   model/      the Model interface + baseline models + registry
   common/     config-driven storage, window search, validation, time helpers
   cli/        Typer CLI
-dashboard/    Streamlit app (talks to the API only)
+frontend/     Next.js dashboard, deployed to ECS (talks to the API only, via lib/api/carbon-v1.ts)
 skills/       agent skill (SKILL.md) for the CLI
 fixtures/     example API responses, generated from the real code (make fixtures)
 infra/        Terraform: bootstrap, base, serving, training, freeplan-check
@@ -80,7 +80,7 @@ docs/         runbook (bring up, demo, tear down)
 | A real model | `model/`, implement `Model`, add it to `registry.py`, set `CARBON_MODEL` | `fit(history)` and `predict(history, horizon)`; return p10/p50/p90. Nothing else changes. |
 | Locations, history, horizon, refresh, thresholds | environment variables, see `config.py` | Terraform exposes the main ones as variables. |
 
-The forecast shape (hourly rows with `intensity`, `p10`, `p90`) is the contract the API,
+The forecast shape (hourly rows with `ts`, `price` in $/MWh, and in price mode `kind` and `nodes`) is the contract the API,
 dashboard and CLI depend on. If the real data changes the granularity, update `jobs/predict.py`
 and `api/main.py` together.
 
@@ -88,8 +88,9 @@ and `api/main.py` together.
 
 | Endpoint | Purpose |
 |----------|---------|
-| `GET /v1/forecast?location=&hours=` | Hourly predicted intensity with a p10-p90 range. |
-| `GET /v1/windows?duration_hours=&max_wait=&deadline=&location=&top=` | Best windows, a `run_now` / `delay` recommendation, and savings at several wait limits. |
+| `GET /v1/sites` | The datacenter campuses served, each with its five nearby price nodes. |
+| `GET /v1/forecast?location=&node=&hours=` | Hourly $/MWh: `published` day-ahead hours, then `forecast` hours (five days). |
+| `GET /v1/windows?duration_hours=&kw=&max_wait=&deadline=&location=&node=&top=` | Cheapest windows with job cost in dollars, a `run_now` / `delay` recommendation, and dollars saved at several wait limits. |
 | `GET /v1/health` | Pipeline status and forecast age. Always returns 200 so the load balancer does not cycle tasks. |
 
 `max_wait` (`90m`, `3h`, `1d`) is the longest delay you accept; `deadline` (ISO time) is when the job

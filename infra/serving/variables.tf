@@ -48,11 +48,17 @@ variable "dashboard_memory" {
 variable "locations" {
   description = "Comma-separated location ids the API serves."
   type        = string
-  default     = "demo-region"
+  default     = ""
 }
 
 variable "stale_after_hours" {
   description = "Forecasts older than this get a forecast_stale warning. Lower it to demo staleness."
   type        = number
-  default     = 6
+  default     = 36
+}
+
+variable "model" {
+  description = "price_xgb = the delivered CAISO day-ahead price model; stub = synthetic demo models."
+  type        = string
+  default     = "price_xgb"
 }
