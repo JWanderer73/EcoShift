@@ -1,0 +1,184 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens. Chart chrome and series colors follow the dataviz reference palette
+ * (validated for color-vision deficiency in light and dark). Dark values are declared twice:
+ * the media query follows the OS, and [data-theme] follows the in-app toggle.
+ */
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --surface-2: #f1f0ec;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #6b6a65;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+  --primary: #0e7a55;
+  --primary-ink: #ffffff;
+  --forecast: #2a78d6;
+  --window: #1baf7a;
+  /* Text on a solid --window fill. Dark in both themes: it clears contrast on both aqua steps. */
+  --on-window: #0b0b0b;
+  --good: #0ca30c;
+  --good-text: #006300;
+  --warning: #fab219;
+  --critical: #d03b3b;
+  /* Terminal mockups stay dark in both themes, like a real terminal. */
+  --terminal: #111110;
+  --terminal-ink: #e8e7e3;
+  --terminal-muted: #8f8d86;
+  --terminal-accent: #2bbd88;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --surface-2: #242422;
+    --ink: #f0efec;
+    --ink-2: #c3c2b7;
+    --muted: #9a988f;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.1);
+    --primary: #2bbd88;
+    --primary-ink: #0b0b0b;
+    --forecast: #3987e5;
+    --window: #199e70;
+    --good-text: #0ca30c;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --surface-2: #242422;
+  --ink: #f0efec;
+  --ink-2: #c3c2b7;
+  --muted: #9a988f;
+  --grid: #2c2c2a;
+  --axis: #383835;
+  --border: rgba(255, 255, 255, 0.1);
+  --primary: #2bbd88;
+  --primary-ink: #0b0b0b;
+  --forecast: #3987e5;
+  --window: #199e70;
+  --good-text: #0ca30c;
+}
+
+@theme inline {
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-grid: var(--grid);
+  --color-axis: var(--axis);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-ink: var(--primary-ink);
+  --color-forecast: var(--forecast);
+  --color-window: var(--window);
+  --color-on-window: var(--on-window);
+  --color-good: var(--good);
+  --color-good-text: var(--good-text);
+  --color-warning: var(--warning);
+  --color-critical: var(--critical);
+  --color-terminal: var(--terminal);
+  --color-terminal-ink: var(--terminal-ink);
+  --color-terminal-muted: var(--terminal-muted);
+  --color-terminal-accent: var(--terminal-accent);
+  --font-sans: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  /* System monospace fonts with box-drawing and block glyphs, so CLI tables and bars line up. Geist Mono has neither. */
+  --font-terminal: Menlo, "Cascadia Mono", Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace;
+}
+
+/* Decorative patterns derive from the ink color, so they flip with the theme on their own. */
+:root {
+  --pattern: color-mix(in oklab, var(--ink) 5%, transparent);
+  --pattern-strong: color-mix(in oklab, var(--ink) 9%, transparent);
+  --grain-opacity: 0.05;
+}
+
+:root[data-theme="dark"] {
+  --grain-opacity: 0.07;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --grain-opacity: 0.07;
+  }
+}
+
+body {
+  position: relative;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+/* Fine film grain over the page background. Cards have solid fills, so it never touches data. */
+body::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: var(--grain-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Graph paper: fine 24px squares with a heavier line every 120px, like an engineering pad. */
+@utility bg-graph-paper {
+  background-image:
+    linear-gradient(to right, var(--pattern-strong) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--pattern-strong) 1px, transparent 1px),
+    linear-gradient(to right, var(--pattern) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--pattern) 1px, transparent 1px);
+  background-size:
+    120px 120px,
+    120px 120px,
+    24px 24px,
+    24px 24px;
+  background-position: center top;
+}
+
+/* Dot grid: a point at every 20px intersection. */
+@utility bg-dot-grid {
+  background-image: radial-gradient(var(--pattern-strong) 1.2px, transparent 1.6px);
+  background-size: 20px 20px;
+}
+
+/* Fades so patterns dissolve into the page instead of ending at a hard edge. */
+@utility mask-fade-hero {
+  mask-image: radial-gradient(ellipse 80% 75% at 50% 40%, black 25%, transparent 80%);
+}
+
+@utility mask-fade-y {
+  mask-image: linear-gradient(to bottom, transparent, black 25%, black 75%, transparent);
+}
+
+@utility mask-fade-down {
+  mask-image: linear-gradient(to bottom, black 20%, transparent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--forecast);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0s !important;
+    animation-duration: 0s !important;
+  }
+}
