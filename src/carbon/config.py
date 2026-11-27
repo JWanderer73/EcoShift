@@ -43,7 +43,7 @@ class Settings:
 def get_settings() -> Settings:
     env = os.environ.get
     model = env("CARBON_MODEL", "baseline")
-    if model == PRICE_MODEL and "CARBON_LOCATIONS" not in os.environ:
+    if model == PRICE_MODEL and not env("CARBON_LOCATIONS", "").strip():  # unset or empty
         from carbon.price.sites import campus_ids
 
         locations = campus_ids()  # every campus the delivered model covers
@@ -59,7 +59,7 @@ def get_settings() -> Settings:
         default_location=env("CARBON_DEFAULT_LOCATION", locations[0]),
         horizon_hours=int(env("CARBON_HORIZON_HOURS", "120" if model == PRICE_MODEL else "48")),
         history_days=int(env("CARBON_HISTORY_DAYS", "28")),
-        stale_after_hours=float(env("CARBON_STALE_AFTER_HOURS", "6")),
+        stale_after_hours=float(env("CARBON_STALE_AFTER_HOURS", "36" if model == PRICE_MODEL else "6")),
         min_savings_usd_per_mwh=float(env("CARBON_MIN_SAVINGS_USD_PER_MWH", "5")),
         kw=float(env("CARBON_DEFAULT_KW", "8")),
         promotion_tolerance=float(env("CARBON_PROMOTION_TOLERANCE", "0.0")),
