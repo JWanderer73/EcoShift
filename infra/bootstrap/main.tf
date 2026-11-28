@@ -77,7 +77,7 @@ resource "aws_iam_role" "github" {
   lifecycle {
     precondition {
       condition     = var.github_repo != ""
-      error_message = "Set github_repo (owner/name) when enable_github_oidc is true."
+      error_message = "Set github_repo to the repository identity in the OIDC subject when enable_github_oidc is true."
     }
   }
 }
