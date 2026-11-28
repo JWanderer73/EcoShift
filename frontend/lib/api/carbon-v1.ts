@@ -88,7 +88,7 @@ export function toWindows(region: string, requestedDeadline: string, v1: V1Windo
     job: {
       duration_hours: hours,
       kw,
-      deadline: new Date(clamped ? lastStart + durationMs : Date.parse(requestedDeadline)).toISOString(),
+      deadline: new Date(clamped || !requestedDeadline ? lastStart + durationMs : Date.parse(requestedDeadline)).toISOString(),
       deadline_clamped: clamped,
     },
     baseline: {
@@ -131,25 +131,31 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
 export function createCarbonV1Client(baseUrl: string): EcoShiftApi {
   let sites: Promise<Site[]> | undefined;
 
-  function loadSites(signal?: AbortSignal): Promise<Site[]> {
-    sites ??= getJson<V1Sites>(`${baseUrl}/v1/sites`, signal)
+  async function loadSites(signal?: AbortSignal): Promise<Site[]> {
+    signal?.throwIfAborted();
+    // Multiple queries share this request, so canceling one caller must not cancel the others.
+    sites ??= getJson<V1Sites>(`${baseUrl}/v1/sites`)
       .then(toSites)
       .catch((error) => {
         sites = undefined; // try again next time instead of caching the failure
         throw error;
       });
-    return sites;
+    const result = await sites;
+    signal?.throwIfAborted();
+    return result;
   }
 
   /** Only campuses the API lists are passed on; anything else gets the API's default campus. */
   async function locationParam(region: string, signal?: AbortSignal): Promise<Record<string, string>> {
     if (!region) return {};
+    if (region === "any") return { location: region };
     const known = await loadSites(signal).catch(() => [] as Site[]);
     return known.some((s) => s.id === region) ? { location: region } : {};
   }
 
   return {
-    getSites: (signal) => loadSites(signal),
+    supportsAnyLocation: true,
+    getSites: loadSites,
     async getForecast(region, signal) {
       const query = new URLSearchParams(await locationParam(region, signal));
       const data = await getJson<V1Forecast>(`${baseUrl}/v1/forecast?${query}`, signal);
@@ -161,7 +167,7 @@ export function createCarbonV1Client(baseUrl: string): EcoShiftApi {
         ...(await locationParam(region, signal)),
         duration_hours: String(durationHours),
         kw: String(kw),
-        deadline,
+        ...(deadline ? { deadline } : {}),
         top: String(Math.min(top, 5)),
       });
       const data = await getJson<V1Windows>(`${baseUrl}/v1/windows?${query}`, signal);

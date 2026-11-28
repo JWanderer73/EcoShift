@@ -89,7 +89,7 @@ Notes:
 
 - `/v1/forecast` gives every hour, each marked `published` (CAISO has already published that day-ahead price) or `forecast` (the model's estimate). The chart draws the boundary and the table shows the column.
 - Job cost is price x kWh / 1000, so the planner has a power-draw field (kW, default 8).
-- The campus list comes from `/v1/sites`; the first one it returns is used until someone picks another.
+- The campus list comes from `/v1/sites`; the first campus is the default. In the deployed dashboard, **Any location** uses `/v1/windows?location=any` to find the cheapest window across campuses with fresh forecasts.
 - When no window fits before the deadline, the dashboard accepts either an empty `windows` list or an error response.
 - The original `createHttpClient` (a `/forecast?region=` contract) is left in `lib/api/client.ts` from the first prototype and is not used by the deployed app; it still returns sample sites.
 

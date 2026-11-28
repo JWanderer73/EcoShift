@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
-import { toForecast, toSites, toWindows } from "@/lib/api/carbon-v1";
+import { describe, expect, it, vi } from "vitest";
+import { createCarbonV1Client, toForecast, toSites, toWindows } from "@/lib/api/carbon-v1";
 
 const v1Windows = {
   location: "fresno-305-west-napa-avenue",
@@ -46,6 +46,24 @@ describe("carbon-v1 adapter", () => {
     expect(toSites({ sites: [{ location: "a", name: "305 West Napa Avenue", city: "Fresno" }] })).toEqual([
       { id: "a", name: "305 West Napa Avenue", city: "Fresno" },
     ]);
+  });
+
+  it("keeps the shared campus request when one caller cancels", async () => {
+    const payload = { sites: [{ location: "fresno", name: "Test campus", city: "Fresno" }] };
+    const fetchSites = vi.fn().mockResolvedValue(Response.json(payload));
+    vi.stubGlobal("fetch", fetchSites);
+    try {
+      const client = createCarbonV1Client("");
+      const controller = new AbortController();
+      const canceled = client.getSites(controller.signal);
+      const active = client.getSites();
+      controller.abort();
+      await expect(canceled).rejects.toThrow();
+      await expect(active).resolves.toEqual(toSites(payload));
+      expect(fetchSites).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("ranks best first, then alternatives, and derives the run-now baseline", () => {
