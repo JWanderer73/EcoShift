@@ -16,6 +16,8 @@ export interface ForecastPoint {
   price: number;
   /** Absent for sample data and older API versions. */
   kind?: PriceKind;
+  /** Grid carbon intensity over the hour, in gCO₂/kWh. Only when the API provides it. */
+  intensity?: number;
 }
 
 export interface ForecastResponse {

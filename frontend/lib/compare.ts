@@ -1,19 +1,54 @@
 // "Where and when": the same job's best window at every California site, cheapest first.
 
-import type { ForecastPoint } from "@/lib/api/types";
+import type { ForecastPoint, Site } from "@/lib/api/types";
 import { findCheapestWindows, jobDollars, type JobWindow } from "@/lib/cost";
-import type { Region } from "@/lib/regions";
+
+/** Something to compare: a data center campus, identified by the code the API takes. */
+export interface Place {
+  code: string;
+  /** Short label for tight spaces. */
+  shortName: string;
+  city?: string;
+}
+
+/** A campus from the API as a `Place`. */
+export function placeFromSite(site: Site): Place {
+  return { code: site.id, shortName: site.city ? `${site.city}, ${site.name}` : site.name, city: site.city };
+}
+
+/** Cities to show first when comparing: the main data center hubs. */
+const HUB_CITIES = ["Santa Clara", "San Jose", "Fremont", "El Segundo", "Los Angeles", "San Diego", "Sacramento", "Fresno"];
+
+/**
+ * Campuses to compare: the one on screen, then one campus from each hub city, then other cities,
+ * at most `max` in all. Comparing all 200+ campuses would mean 200+ requests.
+ */
+export function pickComparisonSites(sites: Site[], currentId: string, max = 8): Site[] {
+  const chosen: Site[] = [];
+  const cities = new Set<string>();
+  const add = (site: Site | undefined) => {
+    if (!site || chosen.length >= max || chosen.some((c) => c.id === site.id)) return;
+    chosen.push(site);
+    cities.add(site.city ?? site.id);
+  };
+  add(sites.find((s) => s.id === currentId));
+  for (const city of [...HUB_CITIES, ...sites.map((s) => s.city ?? "")]) {
+    if (cities.has(city)) continue;
+    add(sites.find((s) => s.city === city));
+  }
+  return chosen;
+}
 
 /** One site's forecast, or why it couldn't be loaded. */
 export interface SiteForecast {
-  region: Region;
+  region: Place;
   points?: ForecastPoint[];
   error?: string;
 }
 
 /** A site's best option for the job. */
 export interface SiteOption {
-  region: Region;
+  region: Place;
   /** Best window at this site; null when none fits the deadline or the forecast failed. */
   best: JobWindow | null;
   /** What the job costs in that window, carbon included, in USD; null without prices. */

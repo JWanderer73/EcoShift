@@ -6,7 +6,7 @@ import { dollarsSaved, findCheapestWindows, hasPrices, hourlyCost, jobDollars, j
 const START = Date.parse("2026-10-21T00:00:00Z");
 
 function forecast(rows: [price: number | undefined, intensity: number][]): ForecastPoint[] {
-  return rows.map(([price, intensity], i) => ({ start: new Date(START + i * HOUR_MS).toISOString(), intensity, price }));
+  return rows.map(([price, intensity], i) => ({ start: new Date(START + i * HOUR_MS).toISOString(), intensity, price: price as number }));
 }
 
 const hoursFromStart = (h: number) => new Date(START + h * HOUR_MS);
@@ -78,5 +78,16 @@ describe("dollars", () => {
     const later = jobStats(points, 1, 1, 0);
     expect(dollarsSaved(now, later, 10, 1)).toBe(400);
     expect(dollarsSaved(later, now, 10, 1)).toBe(-400);
+  });
+});
+
+describe("without carbon data", () => {
+  it("ranks by price and reports no intensity", () => {
+    const points: ForecastPoint[] = [60, 20, 40].map((price, i) => ({ start: new Date(START + i * HOUR_MS).toISOString(), price }));
+    const [best] = findCheapestWindows(points, 1, hoursFromStart(3), 1, 100);
+    expect(best.startIndex).toBe(1);
+    expect(best.avgCost).toBe(20);
+    expect(best.avgIntensity).toBeNull();
+    expect(best.co2SavedPct).toBeNull();
   });
 });

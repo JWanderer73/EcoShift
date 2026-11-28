@@ -16,7 +16,7 @@ export function hasPrices(points: ForecastPoint[]): boolean {
 
 /** One hour's price plus its carbon cost, in USD/MWh. Treats a missing price as 0. */
 export function hourlyCost(point: ForecastPoint, carbonPrice: number): number {
-  return (point.price ?? 0) + carbonPrice * point.intensity * G_PER_KWH_TO_T_PER_MWH;
+  return (point.price ?? 0) + carbonPrice * (point.intensity ?? 0) * G_PER_KWH_TO_T_PER_MWH;
 }
 
 /** Dollars for a job drawing `powerMw` for `hours` at an average `costPerMwh`. */
@@ -39,8 +39,8 @@ export interface JobStats {
   startIndex: number;
   start: string;
   end: string;
-  /** Mean gCO₂/kWh. */
-  avgIntensity: number;
+  /** Mean gCO₂/kWh; null when the forecast has no carbon data. */
+  avgIntensity: number | null;
   /** Mean wholesale price, USD/MWh; null when the forecast has no prices. */
   avgPrice: number | null;
   /** Mean price plus carbon cost, USD/MWh; null when the forecast has no prices. */
@@ -51,8 +51,8 @@ export interface JobStats {
 export interface JobWindow extends JobStats {
   /** 1 is the best. */
   rank: number;
-  /** % less CO₂ than starting now. Negative means more. */
-  co2SavedPct: number;
+  /** % less CO₂ than starting now. Negative means more; null when the forecast has no carbon data. */
+  co2SavedPct: number | null;
   /** % lower blended cost than starting now; null without prices. */
   costSavedPct: number | null;
 }
@@ -69,12 +69,13 @@ export function jobStats(points: ForecastPoint[], startIndex: number, hours: num
   const span = points.slice(startIndex, startIndex + hours);
   const mean = (f: (p: ForecastPoint) => number) => span.reduce((sum, p) => sum + f(p), 0) / hours;
   const priced = hasPrices(span);
+  const withCarbon = span.every((p) => typeof p.intensity === "number");
   const start = Date.parse(points[startIndex].start);
   return {
     startIndex,
     start: points[startIndex].start,
     end: new Date(start + hours * HOUR_MS).toISOString(),
-    avgIntensity: mean((p) => p.intensity),
+    avgIntensity: withCarbon ? mean((p) => p.intensity ?? 0) : null,
     avgPrice: priced ? mean((p) => p.price ?? 0) : null,
     avgCost: priced ? mean((p) => hourlyCost(p, carbonPrice)) : null,
   };
@@ -83,8 +84,8 @@ export function jobStats(points: ForecastPoint[], startIndex: number, hours: num
 /**
  * Rank the cheapest non-overlapping start times for a job, with carbon priced in.
  *
- * Ranks by blended cost when the forecast has prices, and by carbon intensity when it doesn't
- * (an API that predates prices), so the planner still gives a useful answer.
+ * Ranks by blended cost when the forecast has prices, and by carbon intensity when it doesn't.
+ * Without carbon data the carbon term is zero, so this ranks by price alone.
  *
  * @param points Hourly forecast, consecutive, where index 0 is the current hour.
  * @param hours Whole hours the job runs.
@@ -104,7 +105,7 @@ export function findCheapestWindows(
   if (lastStart < 0) return [];
 
   const priced = hasPrices(points);
-  const scores = points.map((p) => (priced ? hourlyCost(p, carbonPrice) : p.intensity));
+  const scores = points.map((p) => (priced ? hourlyCost(p, carbonPrice) : (p.intensity ?? 0)));
   const baseline = jobStats(points, 0, hours, carbonPrice);
 
   return pickWindows(scores, hours, lastStart, top).map(({ start }, i) => {
@@ -112,7 +113,7 @@ export function findCheapestWindows(
     return {
       ...stats,
       rank: i + 1,
-      co2SavedPct: savedPct(baseline.avgIntensity, stats.avgIntensity),
+      co2SavedPct: baseline.avgIntensity === null || stats.avgIntensity === null ? null : savedPct(baseline.avgIntensity, stats.avgIntensity),
       costSavedPct: baseline.avgCost === null || stats.avgCost === null ? null : savedPct(baseline.avgCost, stats.avgCost),
     };
   });

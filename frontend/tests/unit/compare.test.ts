@@ -1,17 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { ForecastPoint } from "@/lib/api/types";
-import { compareSites } from "@/lib/compare";
+import { compareSites, pickComparisonSites, type Place } from "@/lib/compare";
 import { HOUR_MS } from "@/lib/config";
-import { findRegion, type Region } from "@/lib/regions";
 
 const START = Date.parse("2026-10-21T00:00:00Z");
 const deadline = new Date(START + 4 * HOUR_MS);
 
 function forecast(prices: (number | undefined)[], intensity = 100): ForecastPoint[] {
-  return prices.map((price, i) => ({ start: new Date(START + i * HOUR_MS).toISOString(), intensity, price }));
+  return prices.map((price, i) => ({ start: new Date(START + i * HOUR_MS).toISOString(), intensity, price: price as number }));
 }
 
-const site = (code: string) => findRegion(code) as Region;
+const site = (code: string): Place => ({ code, shortName: code, city: "" });
 
 describe("compareSites", () => {
   it("ranks sites by their best window's job cost", () => {
@@ -63,5 +62,29 @@ describe("compareSites", () => {
     expect(options[1].dollars).toBeNull();
     expect(options[2].best).toBeNull();
     expect(options[3].error).toBe("API returned 404");
+  });
+});
+
+describe("pickComparisonSites", () => {
+  const campus = (id: string, city: string) => ({ id, name: id, city });
+  const sites = [
+    campus("fresno-1", "Fresno"),
+    campus("santa-clara-1", "Santa Clara"),
+    campus("santa-clara-2", "Santa Clara"),
+    campus("san-jose-1", "San Jose"),
+    campus("oakland-1", "Oakland"),
+  ];
+
+  it("starts with the campus on screen and takes one per city", () => {
+    const picked = pickComparisonSites(sites, "santa-clara-2").map((s) => s.id);
+    expect(picked).toEqual(["santa-clara-2", "san-jose-1", "fresno-1", "oakland-1"]);
+  });
+
+  it("stops at the limit", () => {
+    expect(pickComparisonSites(sites, "fresno-1", 2)).toHaveLength(2);
+  });
+
+  it("still returns campuses when the current one is unknown", () => {
+    expect(pickComparisonSites(sites, "nope").length).toBeGreaterThan(0);
   });
 });
