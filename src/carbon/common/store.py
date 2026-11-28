@@ -178,7 +178,9 @@ class AwsStore(Store):
         items = [_from_ddb(i) for i in items]
         bookkeeping = {"location", "sk", "model_version", "generated_at"}
         rows = [{k: v for k, v in i.items() if k not in bookkeeping} for i in items]
-        return {"generated_at": items[0]["generated_at"], "rows": sorted(rows, key=lambda r: r["ts"])}
+        # Rows from earlier runs outlive the newest run (it starts at a later hour), so the newest
+        # generated_at is the latest one, not the one on the earliest row.
+        return {"generated_at": max(i["generated_at"] for i in items), "rows": sorted(rows, key=lambda r: r["ts"])}
 
     def get_status(self):
         item = self.status.get_item(Key={"pk": STATUS_PK}).get("Item")
