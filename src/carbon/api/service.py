@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -78,15 +79,23 @@ def _select_node(rows: list[dict], location: str, node: str | None) -> tuple[lis
     return picked, node
 
 
-def load_view(location: str | None, node: str | None = None) -> View:
+def load_view(
+    location: str | None,
+    node: str | None = None,
+    *,
+    store: Store | None = None,
+    status: dict | None = None,
+) -> View:
     settings = get_settings()
     location = location or settings.default_location
     if location not in settings.locations:
         raise ApiError(
             404, "unsupported_location", f"'{location}' is not available. Available: {', '.join(settings.locations)}"
         )
-    store = get_store()
-    status = store.get_status()
+    if store is None:
+        store = get_store()
+    if status is None:
+        status = store.get_status()
     version = (status.get("current_model_versions") or {}).get(location)
     forecast = _read_forecast(store, location, version, settings.cache_ttl_seconds) if version else None
     if forecast is None:
@@ -102,6 +111,21 @@ def load_view(location: str | None, node: str | None = None) -> View:
         location, version, generated_at, rows, compute_warnings(status, generated_at, now, settings),
         data_source=status.get("data_source", "unknown"), node=node,
     )
+
+
+def load_fresh_site_views() -> Iterator[View]:
+    """Read campus forecasts using one store and one published status snapshot."""
+    store = get_store()
+    status = store.get_status()
+    for site in list_sites():
+        try:
+            view = load_view(site["location"], store=store, status=status)
+        except ApiError as error:
+            if error.code not in {"no_forecast", "forecast_expired"}:
+                raise
+            continue
+        if not view.stale:
+            yield view
 
 
 def list_sites() -> list[dict]:

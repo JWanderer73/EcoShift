@@ -114,3 +114,34 @@ def test_fallback_and_degraded_data_warnings(client, seeded):
     get_store().update_status({"fallback": True, "imputed_fraction": 0.5})
     warnings = client.get("/v1/forecast").json()["warnings"]
     assert "model_fallback" in warnings and "data_quality_degraded" in warnings
+
+
+def test_any_location_ranks_fresh_forecasts_and_skips_unavailable_sites(client, seeded, monkeypatch):
+    store = get_store()
+    version = store.get_status()["current_model_versions"]["demo-region"]
+    forecast = store.get_forecast("demo-region", version)
+    cheap_rows = [{**row, "price": -100.0} for row in forecast["rows"]]
+    store.put_forecast("cheaper", version, forecast["generated_at"], cheap_rows)
+    store.put_forecast("stale", version, "2026-10-23T12:00:00Z", [
+        {**row, "price": -200.0} for row in cheap_rows
+    ])
+    store.update_status({"current_model_versions": dict.fromkeys(["demo-region", "cheaper", "stale"], version)})
+    monkeypatch.setenv("CARBON_LOCATIONS", "demo-region,cheaper,stale,missing")
+
+    status_reads = 0
+    get_status = store.get_status
+
+    def count_status_reads():
+        nonlocal status_reads
+        status_reads += 1
+        return get_status()
+
+    monkeypatch.setattr(store, "get_status", count_status_reads)
+    monkeypatch.setattr("carbon.api.service.get_store", lambda: store)
+
+    response = client.get("/v1/windows", params={"location": "any", "duration_hours": 4, "kw": 8, "max_wait": "3h"})
+
+    assert response.status_code == 200
+    assert status_reads == 1
+    assert response.json()["location"] == "cheaper"
+    assert response.json()["best"]["cost_usd"] == -3.2
