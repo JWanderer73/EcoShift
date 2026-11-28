@@ -1,5 +1,5 @@
-/** Hours of forecast the sample data covers. The deployed model serves up to 5 days past what CAISO has published. */
-export const FORECAST_HORIZON_HOURS = 120;
+/** Hours of forecast the sample data covers. The deployed model serves up to 3 days past what CAISO has published. */
+export const FORECAST_HORIZON_HOURS = 72;
 
 /** Number of windows the planner returns (design doc: "top 3 windows"). */
 export const TOP_WINDOWS = 3;

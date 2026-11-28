@@ -53,7 +53,7 @@ locals {
     { name = "CARBON_ARTIFACTS_BUCKET", value = "${var.project}-artifacts-${data.aws_caller_identity.current.account_id}" },
     { name = "CARBON_MODEL", value = var.model },
     { name = "CARBON_LOCATIONS", value = var.locations },
-    { name = "PRICE_MODEL_DIR", value = "/app/price_model" },
+    { name = "PRICE_MODEL_DIR", value = "/app" },
     { name = "CARBON_STALE_AFTER_HOURS", value = tostring(var.stale_after_hours) },
   ]
 

@@ -2,7 +2,7 @@
 
 Two kinds of row, marked in `kind`:
   published  an hour CAISO has already published a day-ahead price for. Served as is.
-  forecast   an hour after the last published one, predicted by the model (up to 120 hours on).
+  forecast   an hour after the last published one, predicted by the model (up to 72 hours on).
 
 Each row has `price` ($/MWh, the nearest node that has one) and `nodes`, the price at each of the
 campus's five nearest nodes. Prices are not clipped: a negative price is a real hour.
@@ -96,8 +96,8 @@ def forecast_campuses(
     if saved:
         leaked = code.illegal_feature_names(features)
         if leaked:
-            raise ValueError(f"model features are not legal five days ahead: {leaked}")
-    needs_weather = any(f.endswith("_forecast_day5") for f in features)
+            raise ValueError(f"model features are not legal three days ahead: {leaked}")
+    needs_weather = any(f in code.WEATHER_FEATURES for f in features)
     needs_load = code.LOAD_FEATURE in features
     weather_fn = fetch_weather or code.fetch_weather
     load_fn = fetch_load or code.fetch_load
@@ -108,7 +108,7 @@ def forecast_campuses(
         except Exception as exc:  # noqa: BLE001 - the model tolerates a missing load forecast
             log.warning("load forecast unavailable (%s); continuing without it", exc)
             load_series = pd.Series(dtype=float)
-    weather_cols = [f for f in features if f.endswith("_forecast_day5")]
+    weather_cols = [f for f in features if f in code.WEATHER_FEATURES]
 
     out: dict[str, list[dict]] = {}
     skipped: dict[str, str] = {}
@@ -137,8 +137,8 @@ def forecast_campuses(
             for node in usable:
                 node_prices = prices[node["pnode_id"]].dropna()
                 frame = code.feature_frame(horizon, node_prices, code.static_features(_node_object(node)), weather, load_series, features)
-                predicted = np.asarray(code.predict_price(saved, frame), dtype=float)
-                required = [f for f in features if f != code.LOAD_FEATURE]
+                predicted = np.array(code.predict_price(saved, frame), dtype=float)  # a copy: pandas 3 hands back read-only arrays
+                required = [f for f in features if f not in {code.LOAD_FEATURE, code.GAS_FEATURE}]
                 predicted[frame.loc[:, required].isna().any(axis=1).to_numpy()] = np.nan
                 series[node["pnode_id"]] = pd.Series(predicted, index=horizon)
         rows = _rows(usable, series, prices, shown, anchor)
