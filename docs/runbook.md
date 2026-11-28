@@ -115,6 +115,12 @@ a demo with:
 scripts/tf.sh training apply -auto-approve -var schedules_enabled=true
 ```
 
+For a two-week refresh instead, set `biweekly_refresh_enabled=true` and
+`schedules_enabled=false` when applying the training stack. This runs the existing
+forecast pipeline every 14 days without enabling hourly accuracy runs. It checks
+and uses the uploaded production model. A 14-day interval leaves forecasts stale
+between runs, so use the regular schedule when serving a current dashboard.
+
 The refresh cadence is `pipeline_schedule` (default every 3 hours, a placeholder).
 
 ## 5. Tear down

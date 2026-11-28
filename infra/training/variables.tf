@@ -35,6 +35,12 @@ variable "schedules_enabled" {
   default     = false
 }
 
+variable "biweekly_refresh_enabled" {
+  description = "Enable a 14-day forecast refresh schedule when regular schedules are disabled."
+  type        = bool
+  default     = false
+}
+
 variable "pipeline_schedule" {
   description = "Refresh cadence. Also settable from config; CAISO day-ahead prices are published once a day."
   type        = string
