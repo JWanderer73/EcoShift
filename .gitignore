@@ -1,11 +1,52 @@
-.local/
+# Python
 __pycache__/
+*.py[cod]
+*.pyo
+*.pyd
 *.egg-info/
 .venv/
-.pytest_cache/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment and secrets
 .env
-dist/
+.env.local
+.env.*
+!.env.example
+
+# Data and generated artifacts
+data/*
+!data/README.md
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+results/*
+!results/.gitkeep
+models/*
+!models/.gitkeep
+
+# Price window artifacts. Rebuild with the commands in price_windows/README.md.
+price_windows/price_dataset.csv
+price_windows/*.joblib
+price_windows/cache/
+price_windows/reports/
+
+# OS/editor files
+.DS_Store
+.vscode/
+.idea/
+
+# Test and coverage outputs
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Cloud pipeline output
+.local/
 build/
+dist/
+*.joblib
 
 # Terraform
 .terraform/
@@ -14,9 +55,3 @@ build/
 *.tfvars
 crash.log
 # keep .terraform.lock.hcl committed
-
-# Price model: large or downloaded files stay out of git (the trained model lives in S3)
-price_windows/price_dataset.csv
-price_windows/*.joblib
-price_windows/cache/
-*.joblib

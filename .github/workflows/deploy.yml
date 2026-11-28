@@ -30,6 +30,7 @@ env:
 
 jobs:
   run:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,6 +57,14 @@ jobs:
           REPO="${{ steps.ecr.outputs.registry }}/carbon-windows"
           docker build --platform linux/amd64 -t "$REPO:${GITHUB_SHA::12}" -t "$REPO:latest" .
           docker push --all-tags "$REPO"
+
+      - name: Build and push the dashboard image
+        if: inputs.action == 'up'
+        run: |
+          REPO="${{ steps.ecr.outputs.registry }}/carbon-windows"
+          docker build --platform linux/amd64 -t "$REPO:web-${GITHUB_SHA::12}" -t "$REPO:web-latest" frontend
+          docker push "$REPO:web-${GITHUB_SHA::12}"
+          docker push "$REPO:web-latest"
 
       - name: Training stack
         if: inputs.action == 'up'
