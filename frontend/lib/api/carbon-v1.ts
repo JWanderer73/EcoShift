@@ -131,14 +131,18 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
 export function createCarbonV1Client(baseUrl: string): EcoShiftApi {
   let sites: Promise<Site[]> | undefined;
 
-  function loadSites(signal?: AbortSignal): Promise<Site[]> {
-    sites ??= getJson<V1Sites>(`${baseUrl}/v1/sites`, signal)
+  async function loadSites(signal?: AbortSignal): Promise<Site[]> {
+    signal?.throwIfAborted();
+    // Multiple queries share this request, so canceling one caller must not cancel the others.
+    sites ??= getJson<V1Sites>(`${baseUrl}/v1/sites`)
       .then(toSites)
       .catch((error) => {
         sites = undefined; // try again next time instead of caching the failure
         throw error;
       });
-    return sites;
+    const result = await sites;
+    signal?.throwIfAborted();
+    return result;
   }
 
   /** Only campuses the API lists are passed on; anything else gets the API's default campus. */
@@ -151,7 +155,7 @@ export function createCarbonV1Client(baseUrl: string): EcoShiftApi {
 
   return {
     supportsAnyLocation: true,
-    getSites: (signal) => loadSites(signal),
+    getSites: loadSites,
     async getForecast(region, signal) {
       const query = new URLSearchParams(await locationParam(region, signal));
       const data = await getJson<V1Forecast>(`${baseUrl}/v1/forecast?${query}`, signal);
