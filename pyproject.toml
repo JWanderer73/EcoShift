@@ -29,5 +29,6 @@ carbon-windows = "carbon.cli.main:app"
 where = ["src"]
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 testpaths = ["tests"]
 filterwarnings = ["ignore:Using `httpx` with:Warning"]
