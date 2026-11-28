@@ -161,8 +161,8 @@ def test_predict_serves_published_prices_then_the_model_forecast(with_model):
     assert rows[0]["ts"] == "2026-10-27T14:00:00Z"  # from the current hour
     published = [r for r in rows if r["kind"] == "published"]
     forecast = [r for r in rows if r["kind"] == "forecast"]
-    assert len(published) == 34 and len(forecast) == 120  # to 2026-10-28 23:00, then five days
-    assert forecast[0]["ts"] == "2026-10-29T00:00:00Z" and forecast[-1]["ts"] == "2026-11-02T23:00:00Z"
+    assert len(published) == 34 and len(forecast) == 72  # to 2026-10-28 23:00, then three days
+    assert forecast[0]["ts"] == "2026-10-29T00:00:00Z" and forecast[-1]["ts"] == "2026-10-31T23:00:00Z"
     assert set(rows[0]["nodes"]) == {n["pnode_id"] for n in sites.candidates()[CAMPUSES[0]]}
     assert all(np.isfinite(r["price"]) for r in rows)
 
@@ -241,7 +241,7 @@ def test_api_forecast_marks_published_and_forecast_hours(api):
     body = api.get("/v1/forecast", params={"location": CAMPUSES[0]}).json()
     assert body["unit"] == "usd_per_mwh" and body["data_source"] == "caiso-day-ahead"
     assert {r["kind"] for r in body["rows"]} == {"published", "forecast"}
-    assert len(body["rows"]) == 154
+    assert len(body["rows"]) == 106
 
 
 def test_api_windows_can_choose_a_negative_published_hour_and_price_it_in_dollars(api):

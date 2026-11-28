@@ -1,7 +1,7 @@
 """Column names shared by the price dataset, the trainer, and the recommender.
 
 Build, train, and recommend import these names. The strings are the dataset contract.
-A price feature has to be at least five days old. Congestion, loss, and the energy
+A price feature has to be at least three days old. Congestion, loss, and the energy
 component are the price split into parts, so a column whose name contains one of
 those words is refused.
 """
@@ -13,7 +13,7 @@ import re
 import numpy as np
 import pandas as pd
 
-from src.carbon_data import repo_root
+from price_windows.helpers import repo_root
 
 TARGET = "lmp_usd_per_mwh"
 CAMPUS_ID = "campus_id"
@@ -21,7 +21,9 @@ PNODE_ID = "pnode_id"
 # Same hour last week. Legal as a feature and as the copy-the-past baseline.
 LMP_LAG_168 = "lmp_lag_168"
 # A price feature younger than this restates the hour being forecast.
-MIN_LAG_HOURS = 120
+MIN_LAG_HOURS = 72
+# The trees fit the change from this column, then the guess adds it back.
+LMP_LAG_72 = "lmp_lag_72"
 # Congestion, loss, and energy are the LMP split into parts. Any lag of them is banned.
 BANNED_PARTS = ("cong", "loss", "energy", "mcc", "mce", "mcl")
 # Inside this distance, a load node outranks a generation node. Both can still be kept.
@@ -33,24 +35,24 @@ PERCENT_PRICE_FLOOR = 5.0
 # The cabinet in the Inflect quote. Dollars use this when the command omits --kw.
 DEFAULT_KW = 8.0
 # No feature in this folder is legal further ahead than this.
-HORIZON_DAYS = 5
-# The job search the command answers. Three days is inside the five-day feature rule.
+HORIZON_DAYS = 3
+# The job search the command answers. Same bound as the feature horizon.
 SEARCH_DAYS = 3
 LOCAL_TZ = "America/Los_Angeles"
 # Downtown San Mateo. A regional forecast point, not a price target.
 SAN_MATEO_LATITUDE = 37.5630
 SAN_MATEO_LONGITUDE = -122.3255
 SAN_MATEO_NAME = "san-mateo"
-# One day-5 forecast covers a cell of this size. About 28 km on a side.
+# One day-3 forecast covers a cell of this size. About 28 km on a side.
 WEATHER_CELL_DEGREES = 0.25
 # A cell already this close to San Mateo is the San Mateo umbrella.
 UMBRELLA_NEAR_KM = 15.0
 HISTORY_START = "2025-11-15"
 HISTORY_END = "2026-11-14"
-# Named price lags. The week mean also uses the hours between 168 and 336.
-LMP_LAGS = (120, 144, 168, 336)
-# Seven same-hour lags, starting at five days and stepping one day.
-WEEK_LAGS = (120, 144, 168, 192, 216, 240, 264)
+# Named price lags. Nothing here is younger than three days.
+LMP_LAGS = (72, 96, 168, 336)
+# Seven same-hour lags, starting at three days and stepping one day.
+WEEK_LAGS = (72, 96, 120, 144, 168, 192, 216)
 WEEK_COLUMN = "lmp_same_hour_week"
 LOAD_FEATURE = "load_forecast_7da_mwh"
 # EIA Henry Hub daily spot, $/MMBtu, series NG.RNGWHHD.D. The number in the name is the lag.
@@ -66,15 +68,14 @@ CALENDAR_FEATURES = (
     "is_holiday",
 )
 WEATHER_FEATURES = (
-    "temperature_forecast_day5",
-    "cloud_cover_forecast_day5",
-    "wind_speed_forecast_day5",
-    "shortwave_forecast_day5",
+    "temperature_forecast_day3",
+    "cloud_cover_forecast_day3",
+    "wind_speed_forecast_day3",
+    "shortwave_forecast_day3",
 )
 STATIC_FEATURES = (
     "node_latitude",
     "node_longitude",
-    "distance_km",
     "node_type_load",
 )
 EARTH_RADIUS_KM = 6371.0088
@@ -170,7 +171,7 @@ def feature_columns(include_load: bool = True) -> list[str]:
 def illegal_feature_names(names: list[str]) -> list[str]:
     """Feature names that would leak the price: the target, a component, or a short lag.
 
-    The check is the name. A lag of 120 hours is the youngest price feature allowed.
+    The check is the name. A lag of 72 hours is the youngest price feature allowed.
     """
     refused = []
     for name in names:
@@ -197,7 +198,7 @@ def weather_cell(latitude: float, longitude: float) -> tuple[float, float]:
 
 
 def assign_umbrellas(nodes: pd.DataFrame) -> pd.DataFrame:
-    """The day-5 forecast point for each P-node.
+    """The day-3 forecast point for each P-node.
 
     Nodes in one 0.25 degree cell share a forecast. San Mateo is that cell when
     a cell center is already within 15 km, and a separate point otherwise. A node

@@ -7,3 +7,7 @@ docs
 fixtures
 __pycache__
 *.egg-info
+price_windows/price_dataset.csv
+price_windows/cache
+*.joblib
+price_windows/__pycache__

@@ -1,7 +1,7 @@
 """Pick the cheapest hours for one batch job at a datacenter campus.
 
 The model only predicts the day-ahead price. Weather is an input. The window
-is a job length inside the next three days after the last hour whose 120-hour
+is a job length inside the next three days after the last hour whose 72-hour
 price lag exists. A request past three days is clamped.
 
     python -m price_windows.recommend --site "Santa Clara" --duration 4 --days 5 --kw 8
@@ -43,12 +43,12 @@ from price_windows.schema import (
 )
 from price_windows.train_xgboost import predict_price
 
-# Same Open-Meteo previous-run fields the dataset stores under the day-5 names.
+# Same Open-Meteo previous-run fields the dataset stores under the day-3 names.
 _METEO = {
-    "temperature_forecast_day5": "temperature_2m_previous_day5",
-    "cloud_cover_forecast_day5": "cloud_cover_previous_day5",
-    "wind_speed_forecast_day5": "wind_speed_10m_previous_day5",
-    "shortwave_forecast_day5": "shortwave_radiation_previous_day5",
+    "temperature_forecast_day3": "temperature_2m_previous_day3",
+    "cloud_cover_forecast_day3": "cloud_cover_previous_day3",
+    "wind_speed_forecast_day3": "wind_speed_10m_previous_day3",
+    "shortwave_forecast_day3": "shortwave_radiation_previous_day3",
 }
 _OASIS = "http://oasis.caiso.com/oasisapi/SingleZip"
 _USER_AGENT = "Mozilla/5.0 (compatible; ecoshift-price/1.0)"
@@ -77,7 +77,7 @@ def job_dollars(price_usd_per_mwh: float, kw: float, duration: int) -> float:
 def clamp_days(days: int, limit: int = SEARCH_DAYS) -> tuple[int, bool]:
     """Keep the search inside ``limit`` days. A longer request is clamped.
 
-    The public command uses three days. Nothing in this folder is legal past five.
+    The public command uses three days. Nothing in this folder is legal past three.
     """
     if days < 1:
         raise ValueError("days must be at least 1")
@@ -272,7 +272,7 @@ def recommend(
     features = list(saved["features"])
     leaked = illegal_feature_names(features)
     if leaked:
-        raise ValueError(f"model features are not legal five days ahead: {leaked}")
+        raise ValueError(f"model features are not legal three days ahead: {leaked}")
     hours = _horizon(table, horizon_days)
     range_start_utc, range_end_utc, range_clamped = _clip_range(hours, range_start, range_end)
     nodes = candidates.loc[candidates["campus_id"].astype(str) == str(campus["campus_id"])].sort_values("rank")
@@ -380,9 +380,10 @@ def _load_model() -> tuple[dict, pd.DataFrame, pd.DataFrame]:
 
 
 def _horizon(table: pd.DataFrame, days: int) -> pd.DatetimeIndex:
-    """The next ``days`` times 24 hours after the last hour whose 120-hour lag exists."""
-    if "lmp_lag_120" in table.columns:
-        usable = table.loc[table["lmp_lag_120"].notna()]
+    """The next ``days`` times 24 hours after the last hour whose 72-hour lag exists."""
+    lag_name = f"lmp_lag_{MIN_LAG_HOURS}"
+    if lag_name in table.columns:
+        usable = table.loc[table[lag_name].notna()]
         anchor = usable.index.max() if not usable.empty else table.index.max()
     else:
         anchor = table.index.max()
@@ -465,7 +466,7 @@ def _feature_frame(hours, prices, static, weather, load, features: list[str], ga
                 total = total + part
             frame[name] = total / len(WEEK_LAGS)
             continue
-        if name in WEATHER_FEATURES or name.endswith("_forecast_day5"):
+        if name in WEATHER_FEATURES or name.endswith("_forecast_day3"):
             if weather is None or name not in weather.columns:
                 frame[name] = np.nan
             else:
@@ -553,7 +554,7 @@ def _resolve_load(features, hours, load: pd.Series | None) -> tuple[pd.Series | 
 
 
 def _fetch_weather(latitude: float, longitude: float, hours: pd.DatetimeIndex, columns: list[str]) -> pd.DataFrame:
-    """The forecast issued five days before each horizon hour. Actual weather is not a substitute."""
+    """The forecast issued three days before each horizon hour. Actual weather is not a substitute."""
     start = hours.min().tz_convert("UTC")
     end = hours.max().tz_convert("UTC")
     cache = dataset_path().parent / "cache" / "horizon_weather"
@@ -577,7 +578,7 @@ def _fetch_weather(latitude: float, longitude: float, hours: pd.DatetimeIndex, c
     payload = json.loads(_get(url).decode("utf-8"))
     hourly = payload.get("hourly") or {}
     if "time" not in hourly:
-        raise RuntimeError(f"Open-Meteo day-5 forecast missing for the horizon: {payload.get('reason')}")
+        raise RuntimeError(f"Open-Meteo day-3 forecast missing for the horizon: {payload.get('reason')}")
     frame = pd.DataFrame(
         {column: hourly.get(_METEO[column]) for column in columns},
         index=pd.to_datetime(hourly["time"], utc=True),

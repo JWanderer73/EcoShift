@@ -1,6 +1,6 @@
-"""Score the next five days from fresh prices without retraining.
+"""Score the next three days from fresh prices without retraining.
 
-The saved booster stays frozen. A lag of 120 hours is read from the price
+The saved booster stays frozen. A lag of 72 hours is read from the price
 cache, so tomorrow's forecast does not need another fit on the modeling
 table. The command does not call the trainer and does not download the
 history year again.
@@ -343,7 +343,7 @@ def refresh_henry_hub(cache: Path) -> pd.Series:
 
 
 def henry_hub_for_hours(daily: pd.Series | None, hours: pd.DatetimeIndex) -> pd.Series:
-    """The latest Henry Hub print dated at least 120 hours before each hour.
+    """The latest Henry Hub print dated at least 72 hours before each hour.
 
     A print from the last few days is left out. An empty series stays missing
     and does not raise.
@@ -399,15 +399,15 @@ def score_campuses(
     """Score every campus with the frozen model. Does not train and does not download.
 
     A feature list with a short price lag or a banned price component is refused.
-    ``days`` above five is clamped.
+    ``days`` above three is clamped.
     """
     features = list(saved["features"])
     leaked = illegal_feature_names(features)
     if leaked:
-        raise ValueError(f"model features are not legal five days ahead: {leaked}")
+        raise ValueError(f"model features are not legal three days ahead: {leaked}")
     for name in features:
         if any(part in name.casefold() for part in BANNED_PARTS):
-            raise ValueError(f"model features are not legal five days ahead: {[name]}")
+            raise ValueError(f"model features are not legal three days ahead: {[name]}")
     days, clamped = clamp_days(int(days), HORIZON_DAYS)
     if table.empty:
         return [], clamped
@@ -443,7 +443,7 @@ def _report_text(results: list[dict], *, when: pd.Timestamp, days: int, clamped:
         f"horizon: next {days} days",
     ]
     if clamped:
-        lines.append("days clamped to 5")
+        lines.append("days clamped to 3")
     lines.append(gas_note)
     if not results:
         lines.append("no campus could be scored from the cache")
@@ -474,7 +474,7 @@ def _prefetch_weather(saved: dict, hours: pd.DatetimeIndex, umbrellas: pd.DataFr
         try:
             _fetch_weather(float(point.umbrella_latitude), float(point.umbrella_longitude), hours, needed)
         except (HTTPError, URLError, TimeoutError, OSError, RuntimeError, ConnectionError, ValueError) as exc:
-            print(f"day-5 weather failed after retries: {exc}", flush=True)
+            print(f"day-3 weather failed after retries: {exc}", flush=True)
             failed = True
     return not failed
 
@@ -535,7 +535,7 @@ def _run_locked(root: Path, *, now, fetch: bool, days: int, duration: int, kw: f
     features = list(saved.get("features", []))
     leaked = illegal_feature_names(features)
     if leaked:
-        print(f"saved model features are not legal five days ahead: {leaked}", flush=True)
+        print(f"saved model features are not legal three days ahead: {leaked}", flush=True)
         return 1
     sites = pd.read_csv(sites_path)
     candidates = pd.read_csv(nodes_path)
@@ -608,8 +608,8 @@ def _run_locked(root: Path, *, now, fetch: bool, days: int, duration: int, kw: f
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Score the next five days from the frozen price model.")
-    parser.add_argument("--days", type=int, default=HORIZON_DAYS, help="days ahead; above 5 is clamped")
+    parser = argparse.ArgumentParser(description="Score the next three days from the frozen price model.")
+    parser.add_argument("--days", type=int, default=HORIZON_DAYS, help="days ahead; above 3 is clamped")
     parser.add_argument("--duration", type=int, default=4, help="job length in hours")
     parser.add_argument("--kw", type=float, default=DEFAULT_KW, help="cabinet power in kW, default 8")
     args = parser.parse_args(argv)

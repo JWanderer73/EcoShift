@@ -26,16 +26,19 @@ from sklearn.model_selection import TimeSeriesSplit
 from xgboost import XGBRegressor
 
 from price_windows.build_dataset import dataset_path, meta_path
-from price_windows.schema import LOCAL_TZ, PERCENT_PRICE_FLOOR, TARGET, TEST_DAYS, illegal_feature_names
-from src.tune_xgboost import EARLY_STOPPING_ROUNDS, SEED, STARTUP_TRIALS, _suggest
+from price_windows.schema import LMP_LAG_72, LOCAL_TZ, PERCENT_PRICE_FLOOR, TARGET, TEST_DAYS, illegal_feature_names
+from price_windows.helpers import EARLY_STOPPING_ROUNDS, SEED, STARTUP_TRIALS, _suggest
 
 UNIT = "$/MWh"
 CV_SPLITS = 3
 # Same length the carbon model uses for a shift. The cheapest hours need not be contiguous.
 SHIFT_HOURS = 4
 LAG_168 = "lmp_lag_168"
+LAG_72 = LMP_LAG_72
+BASELINE_72 = "same hour three days ago"
 BASELINE_WEEK = "same hour last week"
 BASELINE_HOUR = "hour of week mean"
+DROPPED_TRAINING_FEATURE = "distance_km"
 # Extra trees when continuing a saved booster. This is not an Optuna search.
 UPDATE_TREES = 20
 
@@ -45,8 +48,11 @@ def predict_price(saved: dict, frame: pd.DataFrame) -> np.ndarray:
 
     A negative price is a real CAISO hour, so the numbers are not clipped.
     """
-    predicted = saved["model"].predict(frame.loc[:, saved["features"]].astype(float))
-    return np.asarray(predicted, dtype=float)
+    predicted = np.asarray(saved["model"].predict(frame.loc[:, saved["features"]].astype(float)), dtype=float)
+    anchor = saved.get("residual_of")
+    if anchor:
+        predicted = predicted + frame[anchor].to_numpy(dtype=float)
+    return predicted
 
 
 def _load() -> tuple[pd.DataFrame, list[str], dict]:
@@ -67,11 +73,27 @@ def _refuse(features: list[str]) -> None:
         raise ValueError(f"features leak the price or a component of it: {leaked}")
 
 
-def _require_columns(frame: pd.DataFrame, features: list[str]) -> None:
-    needed = [TARGET, LAG_168, "campus_id", "pnode_id", *features]
+def _require_columns(frame: pd.DataFrame, features: list[str], extra: tuple[str, ...] = ()) -> None:
+    needed = [TARGET, LAG_168, "campus_id", "pnode_id", *features, *extra]
     missing = [column for column in needed if column not in frame.columns]
     if missing:
         raise ValueError(f"price dataset is missing columns: {missing}")
+
+
+def _one_row_per_node_hour(frame: pd.DataFrame) -> pd.DataFrame:
+    """Keep one copy of each node-hour. Campus repeats share the price and differ only by distance."""
+    if "pnode_id" not in frame.columns:
+        return frame
+    if frame.index.name is None:
+        frame = frame.copy()
+        frame.index.name = "timestamp"
+    index_name = frame.index.name
+    out = frame.reset_index()
+    sort_by = [index_name, "pnode_id"]
+    if "campus_id" in out.columns:
+        sort_by.append("campus_id")
+    out = out.sort_values(sort_by, kind="mergesort").drop_duplicates([index_name, "pnode_id"], keep="first")
+    return out.set_index(index_name).sort_index(kind="mergesort")
 
 
 def _split(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -249,13 +271,15 @@ def train(
     else:
         meta = {}
         frame = frame.sort_index(kind="mergesort")
+    features = [name for name in features if name != DROPPED_TRAINING_FEATURE]
+    frame = _one_row_per_node_hour(frame)
     _refuse(features)
     if not features:
         raise ValueError("the price dataset has no features")
-    _require_columns(frame, features)
+    _require_columns(frame, features, extra=(LAG_72,))
     train_frame, test_frame = _split(frame)
     x_train = train_frame.loc[:, features].astype(float)
-    y_train = train_frame[TARGET].astype(float)
+    y_train = train_frame[TARGET].astype(float) - train_frame[LAG_72].astype(float)
     folds = _folds(train_frame.index)
     # One core on the short test path. The real search still uses every core,
     # then _release_workers stops those processes before Python exits.
@@ -299,7 +323,13 @@ def train(
     best["n_estimators"] = int(study.best_trial.user_attrs.get("trees", best["n_estimators"]))
     model = XGBRegressor(**best, tree_method="hist", n_jobs=jobs, random_state=SEED, verbosity=0)
     model.fit(x_train, y_train, verbose=False)
-    saved = {"model": model, "features": list(features), "target": TARGET, "unit": UNIT}
+    saved = {
+        "model": model,
+        "features": list(features),
+        "target": TARGET,
+        "unit": UNIT,
+        "residual_of": LAG_72,
+    }
     train_pred = predict_price(saved, train_frame)
     test_pred = predict_price(saved, test_frame)
 
@@ -311,6 +341,7 @@ def train(
     def side(name: str, actual, predicted) -> dict:
         return {"name": name, **_errors(actual, predicted)}
 
+    three_days = test_frame[LAG_72].to_numpy(dtype=float)
     week = test_frame[LAG_168].to_numpy(dtype=float)
     by_hour = _hour_of_week(train_frame, test_frame)
     metrics = {
@@ -319,6 +350,8 @@ def train(
         "test_days": TEST_DAYS,
         "percent_error_min_price_usd_per_mwh": PERCENT_PRICE_FLOOR,
         "clipped_at_zero": False,
+        "residual_of": LAG_72,
+        "training_grain": "one row per pnode per hour",
         "trials": int(len(study.trials)),
         "pruned_trials": int(sum(trial.state == optuna.trial.TrialState.PRUNED for trial in study.trials)),
         "best_params": best,
@@ -329,14 +362,16 @@ def train(
         "train_end": str(train_frame.index.max()),
         "test_start": str(test_frame.index.min()),
         "dataset_hash": meta.get("content_hash"),
-        "train": _errors(y_train, train_pred),
+        "train": _errors(train_frame[TARGET], train_pred),
         "test": _errors(test_frame[TARGET], test_pred),
         "test_regret_4h_usd_per_mwh": _regret(test_frame, test_pred),
         "baselines_test": [
+            side(BASELINE_72, test_frame[TARGET], three_days),
             side(BASELINE_WEEK, test_frame[TARGET], week),
             side(BASELINE_HOUR, test_frame[TARGET], by_hour),
         ],
         "baseline_regret_4h_usd_per_mwh": {
+            BASELINE_72: _regret(test_frame, three_days),
             BASELINE_WEEK: _regret(test_frame, week),
             BASELINE_HOUR: _regret(test_frame, by_hour),
         },
@@ -364,17 +399,24 @@ def update_model(saved: dict, frame: pd.DataFrame, output_path: Path, extra_tree
         raise ValueError("extra_trees must be at least 1")
     if frame.empty:
         raise ValueError("there are no new rows to continue from")
-    _require_columns(frame, features)
+    residual_of = saved.get("residual_of")
+    frame = _one_row_per_node_hour(frame)
+    _require_columns(frame, features, extra=(residual_of,) if residual_of else ())
     model = saved["model"]
     model.set_params(n_estimators=int(extra_trees), n_jobs=1)
+    label = frame[TARGET].astype(float)
+    if residual_of:
+        label = label - frame[residual_of].astype(float)
     try:
         model.fit(
             frame.loc[:, features].astype(float),
-            frame[TARGET].astype(float),
+            label,
             xgb_model=model.get_booster(),
             verbose=False,
         )
         updated = {"model": model, "features": features, "target": TARGET, "unit": UNIT}
+        if residual_of:
+            updated["residual_of"] = residual_of
         destination = Path(output_path)
         destination.parent.mkdir(parents=True, exist_ok=True)
         joblib.dump(updated, destination)
@@ -429,7 +471,7 @@ def _fmt(value) -> str:
 def _print(metrics: dict) -> None:
     print(
         f"search: {metrics['trials']} trials, {metrics['search_seconds']:.0f} s, "
-        f"CV MAE {metrics['cv_mae_usd_per_mwh']:.2f} {UNIT}"
+        f"CV MAE {metrics['cv_mae_usd_per_mwh']:.2f} {UNIT} on the change from {metrics['residual_of']}"
     )
     for name in ("train", "test"):
         row = metrics[name]

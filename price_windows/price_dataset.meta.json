@@ -1,7 +1,7 @@
 {
   "target": "lmp_usd_per_mwh",
   "target_unit": "USD/MWh",
-  "horizon_hours": 120,
+  "horizon_hours": 72,
   "features": [
     "hour_sin",
     "hour_cos",
@@ -10,17 +10,16 @@
     "doy_sin",
     "doy_cos",
     "is_holiday",
-    "lmp_lag_120",
-    "lmp_lag_144",
+    "lmp_lag_72",
+    "lmp_lag_96",
     "lmp_lag_168",
     "lmp_lag_336",
     "lmp_same_hour_week",
-    "temperature_forecast_day5",
-    "cloud_cover_forecast_day5",
-    "wind_speed_forecast_day5",
-    "shortwave_forecast_day5",
+    "temperature_forecast_day3",
+    "cloud_cover_forecast_day3",
+    "wind_speed_forecast_day3",
+    "shortwave_forecast_day3",
     "node_longitude",
-    "distance_km",
     "node_type_load",
     "load_forecast_7da_mwh"
   ],
@@ -32,7 +31,7 @@
     "mce",
     "mcl"
   ],
-  "minimum_price_lag_hours": 120,
+  "minimum_price_lag_hours": 72,
   "dropped": {
     "node_latitude": "|r|=0.956 with another feature; kept the one closer to price"
   },
@@ -48,14 +47,13 @@
   "static": [
     "node_latitude",
     "node_longitude",
-    "distance_km",
     "node_type_load"
   ],
   "weather": [
-    "temperature_forecast_day5",
-    "cloud_cover_forecast_day5",
-    "wind_speed_forecast_day5",
-    "shortwave_forecast_day5"
+    "temperature_forecast_day3",
+    "cloud_cover_forecast_day3",
+    "wind_speed_forecast_day3",
+    "shortwave_forecast_day3"
   ],
   "weather_umbrellas": 31,
   "san_mateo_umbrella": true,
@@ -68,7 +66,7 @@
   "end": "2026-11-14 23:00:00+00:00",
   "history_start": "2025-11-15",
   "history_end": "2026-11-14",
-  "content_hash": "9c16cd2df975312b",
+  "content_hash": "b801e4d51f016dd9",
   "geocode": "Open-Meteo search is tried first. It does not resolve street addresses, so a miss falls through to the US Census one-line geocoder.",
   "ungeocoded_campuses": [
     "Digital Realty SJC17, 2045 & 2055 Lafayette St, Santa Clara",

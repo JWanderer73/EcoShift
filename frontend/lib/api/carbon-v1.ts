@@ -88,7 +88,7 @@ export function toWindows(region: string, requestedDeadline: string, v1: V1Windo
     job: {
       duration_hours: hours,
       kw,
-      deadline: new Date(clamped ? lastStart + durationMs : Date.parse(requestedDeadline)).toISOString(),
+      deadline: new Date(clamped || !requestedDeadline ? lastStart + durationMs : Date.parse(requestedDeadline)).toISOString(),
       deadline_clamped: clamped,
     },
     baseline: {
@@ -170,7 +170,7 @@ export function createCarbonV1Client(baseUrl: string): EcoShiftApi {
       if (!data.best || !Array.isArray(data.alternatives)) {
         throw new ApiError("Windows response doesn't match the expected shape");
       }
-      return toWindows(data.location ?? region, deadline || data.best.end, data);
+      return toWindows(data.location ?? region, deadline, data);
     },
   };
 }

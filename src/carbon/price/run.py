@@ -224,7 +224,7 @@ def predict(store: Store, **injected) -> dict:
 
 # --- accuracy ------------------------------------------------------------------------------------
 
-WINDOW_HOURS = 120
+WINDOW_HOURS = 72
 
 
 def accuracy(store: Store) -> dict:

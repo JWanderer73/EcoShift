@@ -89,7 +89,7 @@ and `api/main.py` together.
 | Endpoint | Purpose |
 |----------|---------|
 | `GET /v1/sites` | The datacenter campuses served, each with its five nearby price nodes. |
-| `GET /v1/forecast?location=&node=&hours=` | Hourly $/MWh: `published` day-ahead hours, then `forecast` hours (five days). |
+| `GET /v1/forecast?location=&node=&hours=` | Hourly $/MWh: `published` day-ahead hours, then `forecast` hours (three days). |
 | `GET /v1/windows?duration_hours=&kw=&max_wait=&deadline=&location=&node=&top=` | Cheapest windows with job cost in dollars, a `run_now` / `delay` recommendation, and dollars saved at several wait limits. |
 | `GET /v1/health` | Pipeline status and forecast age. Always returns 200 so the load balancer does not cycle tasks. |
 

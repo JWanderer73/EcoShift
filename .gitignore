@@ -16,7 +16,7 @@ crash.log
 # keep .terraform.lock.hcl committed
 
 # Price model: large or downloaded files stay out of git (the trained model lives in S3)
-price_model/price_windows/price_dataset.csv
-price_model/price_windows/model.joblib
-price_model/price_windows/cache/
+price_windows/price_dataset.csv
+price_windows/*.joblib
+price_windows/cache/
 *.joblib
