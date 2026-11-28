@@ -1,0 +1,20 @@
+# When a version tag (v0.2.0, ...) is pushed, point the Homebrew formula at it.
+# Needs repo secret HOMEBREW_TAP_TOKEN: a fine-grained token with
+# Contents read/write on Allghelierce/homebrew-ecoshift only.
+name: Update Homebrew formula
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  bump-formula:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: mislav/bump-homebrew-formula-action@v3
+        with:
+          formula-name: ecoshift
+          homebrew-tap: Allghelierce/homebrew-ecoshift
+          base-branch: main
+        env:
+          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

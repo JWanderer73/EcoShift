@@ -72,6 +72,11 @@ export function formatUsd(value: number): string {
   return formatPrice(value);
 }
 
+/** Whole-number carbon intensity with thousands separators, e.g. "1,204". */
+export function formatIntensity(value: number): string {
+  return Math.round(value).toLocaleString("en-US");
+}
+
 /** Hours as a short duration, e.g. 4 → "4h". */
 export function formatHours(hours: number): string {
   return `${hours}h`;

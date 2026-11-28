@@ -57,7 +57,7 @@ def get_settings() -> Settings:
         artifacts_bucket=env("CARBON_ARTIFACTS_BUCKET", ""),
         locations=locations,
         default_location=env("CARBON_DEFAULT_LOCATION", locations[0]),
-        horizon_hours=int(env("CARBON_HORIZON_HOURS", "120" if model == PRICE_MODEL else "48")),
+        horizon_hours=int(env("CARBON_HORIZON_HOURS", "72" if model == PRICE_MODEL else "48")),
         history_days=int(env("CARBON_HISTORY_DAYS", "28")),
         stale_after_hours=float(env("CARBON_STALE_AFTER_HOURS", "36" if model == PRICE_MODEL else "6")),
         min_savings_usd_per_mwh=float(env("CARBON_MIN_SAVINGS_USD_PER_MWH", "5")),

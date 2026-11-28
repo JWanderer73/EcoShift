@@ -1,6 +1,6 @@
 # EcoShift frontend
 
-The landing page and dashboard for EcoShift: CAISO day-ahead electricity prices for California datacenter campuses (published hours, then a five-day model forecast), the cheapest time windows for a job, and a planner that shows what waiting saves in dollars.
+The landing page and dashboard for EcoShift: CAISO day-ahead electricity prices for California datacenter campuses (published hours, then a three-day model forecast), the cheapest time windows for a job, and a planner that shows what waiting saves in dollars.
 
 Next.js (App Router), React, TypeScript, Tailwind CSS. Hosted on Vercel.
 

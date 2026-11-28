@@ -1,13 +1,14 @@
 "use client";
 
 import { ChartSpline, Table } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { CliCommand } from "@/components/cli-command";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { getApiClient } from "@/lib/api/client";
 import { SYNTHETIC_SOURCE, type ForecastPoint, type Site } from "@/lib/api/types";
 import { averagePrice, findBestWindows, forecastEnd, hourStart, indexOfTime, jobCostUsd, lastStartIndex, savedPerMwh } from "@/lib/carbon";
 import { clamp } from "@/lib/chart";
+import { compareSites, pickComparisonSites, placeFromSite, type SiteForecast } from "@/lib/compare";
 import { buildCliCommand } from "@/lib/cli";
 import { DEFAULT_JOB_HOURS, DEFAULT_KW, DEFAULT_REGION, HOUR_MS } from "@/lib/config";
 import { formatDayTime, formatHours, formatPrice, formatRange, formatUsd } from "@/lib/format";
@@ -19,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { CHART_HEIGHT, ForecastChart } from "./forecast-chart";
 import { ForecastTable } from "./forecast-table";
 import { NowCard } from "./now-card";
+import { SiteComparison } from "./site-comparison";
 import { DeadlineField, fieldLabel, JobLengthPicker, PowerField, WindowList } from "./planner";
 import { ErrorState, FreshnessBadge, SampleDataBadge, StaleBanner } from "./status";
 
@@ -138,6 +140,59 @@ function LoadingState() {
         <div className="h-96 animate-pulse rounded-2xl bg-surface-2" />
       </div>
     </div>
+  );
+}
+
+/** Best window for the same job at a handful of campuses, so people can choose where as well as when. */
+function ComparePanel({
+  sites,
+  region,
+  durationHours,
+  kw,
+  deadline,
+  onSelect,
+}: {
+  sites: Site[];
+  region: string;
+  durationHours: number;
+  kw: number;
+  deadline: Date;
+  onSelect: (id: string) => void;
+}) {
+  const picks = useMemo(() => pickComparisonSites(sites, region), [sites, region]);
+  const forecasts = useQuery(picks.length > 0 ? { ids: picks.map((s) => s.id) } : null, async (request, signal) =>
+    Promise.all(
+      request.ids.map(async (id): Promise<{ id: string; points?: ForecastPoint[]; error?: string }> => {
+        try {
+          return { id, points: (await getApiClient().getForecast(id, signal)).points };
+        } catch (error) {
+          if (signal.aborted) throw error;
+          return { id, error: error instanceof Error ? error.message : "Couldn't load the forecast" };
+        }
+      }),
+    ),
+  );
+  const options = useMemo(() => {
+    if (!forecasts.data) return undefined;
+    const byId = new Map(forecasts.data.map((f) => [f.id, f]));
+    const entries: SiteForecast[] = picks.flatMap((site) => {
+      const f = byId.get(site.id);
+      return f ? [{ region: placeFromSite(site), points: f.points, error: f.error }] : [];
+    });
+    return compareSites(entries, durationHours, deadline, 0, kw / 1000);
+  }, [forecasts.data, picks, durationHours, deadline, kw]);
+
+  return (
+    <SiteComparison
+      options={options}
+      error={forecasts.error}
+      onRetry={forecasts.retry}
+      current={region}
+      durationHours={durationHours}
+      kw={kw}
+      deadline={deadline}
+      onSelect={onSelect}
+    />
   );
 }
 
@@ -302,6 +357,8 @@ export function Dashboard() {
             </section>
           </Card>
         </div>
+
+        <ComparePanel sites={sites} region={region} durationHours={durationHours} kw={kw} deadline={deadline} onSelect={changeRegion} />
       </div>
     );
   }

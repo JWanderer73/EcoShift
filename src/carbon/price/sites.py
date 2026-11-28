@@ -12,15 +12,18 @@ from pathlib import Path
 
 
 def model_dir() -> Path:
-    """Folder holding the vendored model (`price_windows/` and `src/`). Override with PRICE_MODEL_DIR."""
+    """Folder that holds the model's `price_windows/` package (the repo root, or /app in the image).
+
+    Override with PRICE_MODEL_DIR.
+    """
     override = os.environ.get("PRICE_MODEL_DIR")
     if override:
         return Path(override)
     here = Path(__file__).resolve()
     for parent in here.parents:  # repo checkout (src/carbon/price/ -> repo root) or the image's /app
-        if (parent / "price_model" / "price_windows").is_dir():
-            return parent / "price_model"
-    return Path("/app/price_model")
+        if (parent / "price_windows" / "sites.csv").is_file():
+            return parent
+    return Path("/app")
 
 
 def _rows(name: str) -> list[dict]:
