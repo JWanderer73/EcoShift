@@ -128,8 +128,20 @@ def test_any_location_ranks_fresh_forecasts_and_skips_unavailable_sites(client, 
     store.update_status({"current_model_versions": dict.fromkeys(["demo-region", "cheaper", "stale"], version)})
     monkeypatch.setenv("CARBON_LOCATIONS", "demo-region,cheaper,stale,missing")
 
+    status_reads = 0
+    get_status = store.get_status
+
+    def count_status_reads():
+        nonlocal status_reads
+        status_reads += 1
+        return get_status()
+
+    monkeypatch.setattr(store, "get_status", count_status_reads)
+    monkeypatch.setattr("carbon.api.service.get_store", lambda: store)
+
     response = client.get("/v1/windows", params={"location": "any", "duration_hours": 4, "kw": 8, "max_wait": "3h"})
 
     assert response.status_code == 200
+    assert status_reads == 1
     assert response.json()["location"] == "cheaper"
     assert response.json()["best"]["cost_usd"] == -3.2

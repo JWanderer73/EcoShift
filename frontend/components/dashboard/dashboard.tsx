@@ -226,6 +226,9 @@ export function Dashboard() {
   const points = data?.points ?? [];
   const end = points.length ? forecastEnd(points) : null;
   const deadline = end === null ? null : (customDeadline ?? new Date(end));
+  // Keep the deadline editor available while Any location searches, including after a search fails.
+  const plannerPoints = forecast.data?.points;
+  const plannerEnd = plannerPoints?.length ? forecastEnd(plannerPoints) : null;
 
   const windowsQuery = useQuery(
     !anyLocation && region && data?.region === region && deadline ? { region, durationHours, kw, deadline: deadline.toISOString() } : null,
@@ -391,12 +394,12 @@ export function Dashboard() {
         <SiteSelect sites={sites} value={anyLocation ? "any" : selectedSite} onChange={changeRegion} />
         <JobLengthPicker value={durationHours} onChange={changeDuration} />
         <PowerField value={kw} onChange={setKw} />
-        {deadline && end !== null ? (
+        {plannerPoints && plannerEnd !== null ? (
           <DeadlineField
-            value={deadline}
-            forecastStart={new Date(hourStart(points, 0))}
-            min={new Date(hourStart(points, 0) + durationHours * HOUR_MS)}
-            max={new Date(end)}
+            value={customDeadline ?? new Date(plannerEnd)}
+            forecastStart={new Date(hourStart(plannerPoints, 0))}
+            min={new Date(hourStart(plannerPoints, 0) + durationHours * HOUR_MS)}
+            max={new Date(plannerEnd)}
             isCustom={customDeadline !== null}
             onChange={changeDeadline}
           />
