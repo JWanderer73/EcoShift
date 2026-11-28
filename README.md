@@ -1,12 +1,10 @@
 # Carbon windows
 
-Find the lowest-emission time to run a heavy job. An API serves precomputed forecasts, and a
-dashboard, a CLI and a coding-agent skill all read from it.
+Find lower-cost or lower-emission times to run a heavy job. The cloud API, dashboard and
+`carbon-windows` CLI use the price forecast. The `carbon` CLI uses the separate emissions forecast.
 
-This is a club project (10 weeks, demo only). **The data and the model are stubs**: ingest
-generates a synthetic series and the models are simple baselines. Everything around them (API,
-CLI, dashboard, pipeline, infrastructure) is real and works with the stubs, so the real data and
-model drop in later without touching the rest.
+The local cloud demo uses synthetic data. AWS uses CAISO day-ahead prices and an uploaded
+model. The [runbook](docs/runbook.md) covers the first deployment and model upload.
 
 ## Architecture
 
@@ -109,7 +107,7 @@ must finish. Use one or neither. Interactive docs are at `/docs`. Example respon
 Errors are `{"error": {"code", "message"}}`: `404 unsupported_location`, `503 no_forecast`,
 `503 forecast_expired`, `422` for bad parameters.
 
-## CLI and agent skill
+## Cloud CLI and agent skill
 
 ```bash
 export CARBON_API_URL=http://<alb-dns>   # default http://localhost:8000
@@ -122,7 +120,19 @@ carbon-windows status
 Exit codes: `0` ok, `2` bad arguments, `3` API unreachable, `4` data returned but stale or the
 pipeline failed (`--allow-stale` ignores this), `5` API error.
 
-To give a coding agent the skill, copy `skills/carbon-windows/` into the agent's skills directory.
+To give a coding agent the skill, copy `skills/cloud-price-windows/` into the agent's skills directory.
+
+## Emissions CLI
+
+The `carbon` command ranks low-emission windows using the existing 48-hour sample forecast.
+Install it with `pipx install .` from a checkout, or use the existing Homebrew tap.
+
+```bash
+carbon windows --duration 3h --json
+```
+
+The matching agent skill is in `skills/carbon-windows/`. The offline CAISO price modeling
+commands are documented in [price_windows/README.md](price_windows/README.md).
 
 ## Model rollout
 

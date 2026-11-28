@@ -151,7 +151,7 @@ rather than redefining logic inline.
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-pip install -e .       # installs the `carbon` command
+pip install -e ".[cli,price,dev]"   # installs both CLIs and the test dependencies
 cp .env.example .env   # then fill in your own local values — never commit .env
 ```
 
@@ -159,6 +159,7 @@ Price training does not need an API key. `python -m price_windows.build_dataset`
 
 ## Running things
 
+- Cloud demo: run `make seed`, `make api`, and `make web`. The cloud CLI is `carbon-windows`, with agent instructions in `skills/cloud-price-windows/` and AWS setup in `docs/runbook.md`.
 - Launch notebooks: `jupyter lab notebooks/`
 - Find low-emission windows for a job: `carbon windows --duration 4h`
   (`--json` for coding agents, `--help` for all options). It runs on
