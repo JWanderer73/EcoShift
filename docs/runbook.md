@@ -151,7 +151,10 @@ The regular refresh cadence is `pipeline_schedule` (default once a day).
 Only possible if the account allows IAM OIDC providers (not the Free plan in this account type).
 If it does:
 
-1. Apply bootstrap with `-var enable_github_oidc=true -var github_repo=OWNER/REPO` (use the real values).
+1. Apply bootstrap with `-var enable_github_oidc=true` and the repository identity from
+   its [GitHub OIDC subject](https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims).
+   EcoShift uses `-var github_repo=JWanderer73@184721915/EcoShift@1408425314`. For a repository
+   with legacy subject claims, use `-var github_repo=OWNER/REPO` instead.
 2. In GitHub, Settings > Secrets and variables > Actions > Variables, set `AWS_ROLE_ARN` (the
    `github_actions_role_arn` output), `TF_STATE_BUCKET`, `AWS_REGION`, and `NIGHTLY_DESTROY=true`.
 3. After the first model upload, run **deploy** from `main` with action `up`. The deploy

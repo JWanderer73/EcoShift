@@ -21,7 +21,7 @@ variable "enable_github_oidc" {
 }
 
 variable "github_repo" {
-  description = "GitHub repository allowed to deploy, as owner/name. Only needed when enable_github_oidc is true."
+  description = "Repository identity in the GitHub OIDC subject. Use OWNER@OWNER_ID/REPO@REPO_ID for immutable subjects or OWNER/REPO for legacy subjects."
   type        = string
   default     = ""
 }
