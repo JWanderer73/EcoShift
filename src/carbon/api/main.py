@@ -75,7 +75,33 @@ def get_windows(
 ):
     if max_wait and deadline:
         raise ApiError(422, "conflicting_parameters", "Provide either max_wait or deadline, not both.")
-    view = service.load_view(location, node)
+    if location == "any":
+        if node is not None:
+            raise ApiError(422, "conflicting_parameters", "A node requires a specific location.")
+        candidates = []
+        for site in service.list_sites():
+            try:
+                view = service.load_view(site["location"])
+                if not view.stale:
+                    candidates.append(_rank_windows(view, duration_hours, kw, max_wait, deadline, top))
+            except ApiError as error:
+                if error.code not in {"no_forecast", "forecast_expired", "duration_exceeds_horizon", "deadline_too_soon"}:
+                    raise
+        if not candidates:
+            raise ApiError(503, "no_eligible_forecast", "No location has a fresh forecast with a window that fits.")
+        return min(candidates, key=lambda item: (item["best"]["cost_usd"], item["best"]["avg"],
+                                                 item["best"]["start"], item["location"]))
+    return _rank_windows(service.load_view(location, node), duration_hours, kw, max_wait, deadline, top)
+
+
+def _rank_windows(
+    view: service.View,
+    duration_hours: int,
+    kw: float | None,
+    max_wait: str | None,
+    deadline: str | None,
+    top: int,
+) -> dict:
     settings = get_settings()
     kw = kw or settings.kw
     values = [r["price"] for r in view.rows]

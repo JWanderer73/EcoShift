@@ -37,6 +37,7 @@ function SiteSelect({ sites, value, onChange }: { sites: Site[]; value: string; 
         className="h-9 max-w-72 rounded-lg border border-border bg-surface px-3 text-sm font-medium text-ink"
       >
         {sites.length === 0 && <option value={value}>Loading…</option>}
+        {sites.length > 0 && getApiClient().supportsAnyLocation && <option value="any">Any location</option>}
         {sites.map((s) => (
           <option key={s.id} value={s.id}>
             {siteLabel(s, s.id)}
@@ -146,7 +147,8 @@ export function Dashboard() {
   const sites = useSites();
   const [pickedRegion, setRegion] = useState(DEFAULT_REGION);
   // With the deployed API the sample default isn't a real campus, so use the first one it lists.
-  const region = sites.length > 0 && !findSite(sites, pickedRegion) ? sites[0].id : pickedRegion;
+  const anyLocation = pickedRegion === "any";
+  const selectedSite = sites.length > 0 && !findSite(sites, pickedRegion) ? sites[0].id : pickedRegion;
   const [durationHours, setDurationHours] = useState(DEFAULT_JOB_HOURS);
   const [kw, setKw] = useState(DEFAULT_KW);
   /** Value from the deadline input (local wall-clock time); null means the end of the forecast. */
@@ -157,20 +159,26 @@ export function Dashboard() {
   const [view, setView] = useState<View>("chart");
   const now = useMinuteClock();
 
-  const forecast = useQuery({ region }, (request, signal) => getApiClient().getForecast(request.region, signal));
-  const data = forecast.data;
+  const customDeadline = deadlineInput && !Number.isNaN(Date.parse(deadlineInput)) ? new Date(deadlineInput) : null;
+  const rankedSites = useQuery(
+    anyLocation ? { region: "any", durationHours, kw, deadline: customDeadline?.toISOString() ?? "" } : null,
+    (request, signal) => getApiClient().getWindows(request, signal),
+  );
+  const winningSite = rankedSites.isRefetching ? undefined : rankedSites.data;
+  const region = anyLocation ? winningSite?.region : selectedSite;
+  const forecast = useQuery(region ? { region } : null, (request, signal) => getApiClient().getForecast(request.region, signal));
+  const data = forecast.data?.region === region ? forecast.data : undefined;
   const points = data?.points ?? [];
   const end = points.length ? forecastEnd(points) : null;
-  const customDeadline = deadlineInput && !Number.isNaN(Date.parse(deadlineInput)) ? new Date(deadlineInput) : null;
   const deadline = end === null ? null : (customDeadline ?? new Date(end));
 
   const windowsQuery = useQuery(
-    data?.region === region && deadline ? { region, durationHours, kw, deadline: deadline.toISOString() } : null,
+    !anyLocation && region && data?.region === region && deadline ? { region, durationHours, kw, deadline: deadline.toISOString() } : null,
     (request, signal) => getApiClient().getWindows(request, signal),
   );
-  const windowsData = windowsQuery.data;
+  const windowsData = anyLocation ? winningSite : windowsQuery.data;
   // Only trust windows computed for what's on screen; older ones stay listed (dimmed) but off the chart.
-  const windowsMatch = windowsData?.region === region && windowsData.job.duration_hours === durationHours && windowsData.job.kw === kw;
+  const windowsMatch = windowsData !== undefined && windowsData.region === region && windowsData.job.duration_hours === durationHours && windowsData.job.kw === kw;
   const windows = windowsMatch ? windowsData.windows : [];
 
   function changeRegion(code: string) {
@@ -190,7 +198,9 @@ export function Dashboard() {
   }
 
   let body;
-  if (forecast.error) {
+  if (anyLocation && rankedSites.error) {
+    body = <ErrorState title="Couldn't compare locations" message={rankedSites.error.message} onRetry={rankedSites.retry} />;
+  } else if (forecast.error) {
     body = (
       <ErrorState
         title="Couldn't load the forecast"
@@ -295,7 +305,7 @@ export function Dashboard() {
               <h3 id="cli-heading" className="mb-2 text-sm font-medium text-ink">
                 Same answer in your terminal
               </h3>
-              <CliCommand command={buildCliCommand({ region, durationHours, kw, deadline: customDeadline })} />
+              <CliCommand command={buildCliCommand({ region: data.region, durationHours, kw, deadline: customDeadline })} />
               <p className="mt-1.5 text-xs text-muted">
                 Add <code className="font-mono">--json</code> for coding agents.
               </p>
@@ -321,7 +331,7 @@ export function Dashboard() {
 
       {/* Everything the answer depends on, above the answer. */}
       <div className="flex flex-wrap items-start gap-x-8 gap-y-4">
-        <SiteSelect sites={sites} value={region} onChange={changeRegion} />
+        <SiteSelect sites={sites} value={anyLocation ? "any" : selectedSite} onChange={changeRegion} />
         <JobLengthPicker value={durationHours} onChange={changeDuration} />
         <PowerField value={kw} onChange={setKw} />
         {deadline && end !== null ? (

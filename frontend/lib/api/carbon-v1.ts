@@ -144,11 +144,13 @@ export function createCarbonV1Client(baseUrl: string): EcoShiftApi {
   /** Only campuses the API lists are passed on; anything else gets the API's default campus. */
   async function locationParam(region: string, signal?: AbortSignal): Promise<Record<string, string>> {
     if (!region) return {};
+    if (region === "any") return { location: region };
     const known = await loadSites(signal).catch(() => [] as Site[]);
     return known.some((s) => s.id === region) ? { location: region } : {};
   }
 
   return {
+    supportsAnyLocation: true,
     getSites: (signal) => loadSites(signal),
     async getForecast(region, signal) {
       const query = new URLSearchParams(await locationParam(region, signal));
@@ -161,14 +163,14 @@ export function createCarbonV1Client(baseUrl: string): EcoShiftApi {
         ...(await locationParam(region, signal)),
         duration_hours: String(durationHours),
         kw: String(kw),
-        deadline,
+        ...(deadline ? { deadline } : {}),
         top: String(Math.min(top, 5)),
       });
       const data = await getJson<V1Windows>(`${baseUrl}/v1/windows?${query}`, signal);
       if (!data.best || !Array.isArray(data.alternatives)) {
         throw new ApiError("Windows response doesn't match the expected shape");
       }
-      return toWindows(data.location ?? region, deadline, data);
+      return toWindows(data.location ?? region, deadline || data.best.end, data);
     },
   };
 }
