@@ -5,7 +5,7 @@ description: Check when electricity is cheapest (CAISO day-ahead price) before s
 
 # Carbon windows
 
-Use the `carbon-windows` CLI to find the cheapest time to run a heavy job, from CAISO day-ahead prices (published for tomorrow, forecast for the next five days).
+Use the `carbon-windows` CLI to find the cheapest time to run a heavy job, from CAISO day-ahead prices (published for tomorrow, forecast for the next three days).
 
 ## When to use it
 

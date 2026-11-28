@@ -16,7 +16,7 @@ const STEPS: { icon: LucideIcon; title: string; body: string }[] = [
   {
     icon: BrainCircuit,
     title: "Forecast",
-    body: "Tomorrow's prices are already published, so those are served as they are. A model predicts the five days after that. A new model only ships if its error holds up against the current one.",
+    body: "Tomorrow's prices are already published, so those are served as they are. A model predicts the three days after that. A new model only ships if its error holds up against the current one.",
   },
   {
     icon: Server,

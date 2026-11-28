@@ -2,9 +2,9 @@
 
 The target is the CAISO day-ahead locational marginal price, in dollars per
 megawatt-hour, at the five P-nodes nearest each campus. Every price feature
-is at least five days old. Congestion, loss, and the energy component are
+is at least three days old. Congestion, loss, and the energy component are
 never read into a lag, because those three numbers are the price taken apart.
-Weather is the forecast that existed five days before the hour, not the
+Weather is the forecast that existed three days before the hour, not the
 weather that actually arrived.
 
     python -m price_windows.build_dataset
@@ -33,8 +33,10 @@ from price_windows.schema import (
     HISTORY_END,
     HISTORY_START,
     LMP_LAG_168,
+    LMP_LAG_72,
     LMP_LAGS,
     LOAD_FEATURE,
+    MIN_LAG_HOURS,
     LOCAL_TZ,
     STATIC_FEATURES,
     TARGET,
@@ -50,8 +52,7 @@ from price_windows.schema import (
     illegal_feature_names,
     nearest_five,
 )
-from src.build_demand_dataset import content_hash, us_holidays
-from src.carbon_data import repo_root
+from price_windows.helpers import content_hash, repo_root, us_holidays
 
 INFLECT_PAGES = [
     "https://inflect.com/datacenters/na/usa/california",
@@ -493,7 +494,7 @@ def _lmp_chunk(node: str, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFram
 def _with_lags(hourly: pd.Series) -> pd.DataFrame:
     """Price lags on a complete hourly index.
 
-    A missing hour stays missing. The lag is 120 clock hours, not 120 rows,
+    A missing hour stays missing. The lag is 72 clock hours, not 72 rows,
     so a hole in the archive does not pull a nearer price into the feature.
     """
     hourly = hourly.sort_index()
@@ -529,7 +530,7 @@ def _prices(nodes: list[str]) -> pd.DataFrame:
 
 
 def _weather_one(latitude: float, longitude: float) -> pd.DataFrame:
-    path = cache_dir() / "weather" / f"{latitude:.4f}_{longitude:.4f}.csv"
+    path = cache_dir() / "weather" / f"{latitude:.4f}_{longitude:.4f}_day3.csv"
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and path.stat().st_size > 100:
         frame = pd.read_csv(path, index_col=0, parse_dates=True)
@@ -543,10 +544,10 @@ def _weather_one(latitude: float, longitude: float) -> pd.DataFrame:
             "end_date": HISTORY_END,
             "hourly": ",".join(
                 [
-                    "temperature_2m_previous_day5",
-                    "cloud_cover_previous_day5",
-                    "wind_speed_10m_previous_day5",
-                    "shortwave_radiation_previous_day5",
+                    "temperature_2m_previous_day3",
+                    "cloud_cover_previous_day3",
+                    "wind_speed_10m_previous_day3",
+                    "shortwave_radiation_previous_day3",
                 ]
             ),
             "timezone": "UTC",
@@ -555,13 +556,13 @@ def _weather_one(latitude: float, longitude: float) -> pd.DataFrame:
     payload = json.loads(_get(url, timeout=120))
     hourly = payload.get("hourly") or {}
     if "time" not in hourly:
-        raise RuntimeError(f"Open-Meteo day-5 forecast missing for {latitude}, {longitude}: {payload.get('reason')}")
+        raise RuntimeError(f"Open-Meteo day-3 forecast missing for {latitude}, {longitude}: {payload.get('reason')}")
     frame = pd.DataFrame(
         {
-            "temperature_forecast_day5": hourly.get("temperature_2m_previous_day5"),
-            "cloud_cover_forecast_day5": hourly.get("cloud_cover_previous_day5"),
-            "wind_speed_forecast_day5": hourly.get("wind_speed_10m_previous_day5"),
-            "shortwave_forecast_day5": hourly.get("shortwave_radiation_previous_day5"),
+            "temperature_forecast_day3": hourly.get("temperature_2m_previous_day3"),
+            "cloud_cover_forecast_day3": hourly.get("cloud_cover_previous_day3"),
+            "wind_speed_forecast_day3": hourly.get("wind_speed_10m_previous_day3"),
+            "shortwave_forecast_day3": hourly.get("shortwave_radiation_previous_day3"),
         },
         index=pd.to_datetime(hourly["time"], utc=True),
     )
@@ -570,7 +571,7 @@ def _weather_one(latitude: float, longitude: float) -> pd.DataFrame:
 
 
 def _fill_from_nearest(arrays: dict[str, np.ndarray], points: pd.DataFrame) -> int:
-    """Copy a missing hour from the nearest umbrella that has the day-5 forecast.
+    """Copy a missing hour from the nearest umbrella that has the day-3 forecast.
 
     All four weather values at that hour come from the same neighbor. The count
     is the number of umbrella-hours that were empty and then filled.
@@ -744,25 +745,25 @@ def _assemble(campuses, candidates, prices, weather, load, assignment, filled_ho
         raise RuntimeError(f"assembled table is missing columns: {missing}")
     before = len(table)
     table = table.dropna(subset=required)
-    print(f"rows with a price, a full lag, and a day-5 forecast: {len(table)} of {before}")
+    print(f"rows with a price, a full lag, and a day-3 forecast: {len(table)} of {before}")
     if table.empty:
-        raise RuntimeError("every row was dropped; a lag or the day-5 forecast is missing")
+        raise RuntimeError("every row was dropped; a lag or the day-3 forecast is missing")
     features, dropped = _drop_correlated(table, proposed)
     banned = illegal_feature_names(features)
     if banned:
         raise RuntimeError(f"refusing to write after the correlation pass: {banned}")
-    # The same-hour-last-week column is the baseline even when correlation drops it as a feature.
-    baseline = [LMP_LAG_168] if LMP_LAG_168 not in features else []
+    # The residual and the week-ago price stay in the table even if correlation drops them.
+    baseline = [name for name in (LMP_LAG_72, LMP_LAG_168) if name not in features]
     keep = ["campus_id", "pnode_id", "node_type", TARGET, *baseline, *features]
     table = table.loc[:, [column for column in keep if column in table.columns]]
     table.index.name = "timestamp"
     meta = {
         "target": TARGET,
         "target_unit": "USD/MWh",
-        "horizon_hours": 120,
+        "horizon_hours": MIN_LAG_HOURS,
         "features": features,
         "banned_substrings": ["cong", "loss", "energy", "mcc", "mce", "mcl"],
-        "minimum_price_lag_hours": 120,
+        "minimum_price_lag_hours": MIN_LAG_HOURS,
         "dropped": dropped,
         "calendar": list(CALENDAR_FEATURES),
         "static": list(STATIC_FEATURES),
