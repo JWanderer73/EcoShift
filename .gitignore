@@ -26,6 +26,12 @@ results/*
 models/*
 !models/.gitkeep
 
+# Price window artifacts. Rebuild with the commands in price_windows/README.md.
+price_windows/price_dataset.csv
+price_windows/*.joblib
+price_windows/cache/
+price_windows/reports/
+
 # OS/editor files
 .DS_Store
 .vscode/

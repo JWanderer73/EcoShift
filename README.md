@@ -30,6 +30,16 @@ cp -R "$(brew --prefix)/share/ecoshift/skills/carbon-windows" ~/.claude/skills/
 
 The forecasts are synthetic until the EcoShift API is deployed, and the output says so.
 
+## Price windows
+
+`price_windows/` forecasts the CAISO day-ahead price in dollars per megawatt-hour at the five P-nodes nearest each Inflect California datacenter, and prints that price in $/kWh. Setup, the three commands, and the list of files that belong in git are in [`price_windows/README.md`](price_windows/README.md).
+
+```bash
+python -m price_windows.build_dataset
+python -m price_windows.train_xgboost
+python -m price_windows.recommend --site "Santa Clara" --duration 4 --days 3 --kw 8
+```
+
 ## Suggested repository structure
 
 ```text

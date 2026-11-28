@@ -1,0 +1,72 @@
+{
+  "target": "lmp_usd_per_mwh",
+  "unit": "$/MWh",
+  "test_days": 28,
+  "percent_error_min_price_usd_per_mwh": 5.0,
+  "clipped_at_zero": false,
+  "residual_of": "lmp_lag_72",
+  "training_grain": "one row per pnode per hour",
+  "trials": 40,
+  "pruned_trials": 2,
+  "best_params": {
+    "objective": "reg:absoluteerror",
+    "max_depth": 3,
+    "learning_rate": 0.2198016536254866,
+    "n_estimators": 155,
+    "min_child_weight": 1.835478822246785,
+    "subsample": 0.777490364298977,
+    "colsample_bytree": 0.6578350408647193,
+    "reg_lambda": 0.02596779855762595,
+    "reg_alpha": 3.627534691080129e-05,
+    "gamma": 2.315753024413049
+  },
+  "cv_mae_usd_per_mwh": 9.221836250312549,
+  "search_seconds": 1234.68446025,
+  "train_rows": 1652123,
+  "test_rows": 141545,
+  "train_end": "2026-10-17 23:00:00+00:00",
+  "test_start": "2026-10-18 00:00:00+00:00",
+  "dataset_hash": "b801e4d51f016dd9",
+  "train": {
+    "mae_usd_per_mwh": 5.2056402459215185,
+    "rmse_usd_per_mwh": 11.748426401454555,
+    "percent_error_mean": 15.9669248431412,
+    "percent_error_median": 7.88456884668779
+  },
+  "test": {
+    "mae_usd_per_mwh": 7.577549411688947,
+    "rmse_usd_per_mwh": 11.155545812632093,
+    "percent_error_mean": 17.871002029378136,
+    "percent_error_median": 10.980993489113434
+  },
+  "test_regret_4h_usd_per_mwh": 2.102096713395461,
+  "baselines_test": [
+    {
+      "name": "same hour three days ago",
+      "mae_usd_per_mwh": 8.92221544766682,
+      "rmse_usd_per_mwh": 13.478930409272294,
+      "percent_error_mean": 22.940522662296672,
+      "percent_error_median": 12.80911756612003
+    },
+    {
+      "name": "same hour last week",
+      "mae_usd_per_mwh": 9.327589173760995,
+      "rmse_usd_per_mwh": 13.96385138268828,
+      "percent_error_mean": 22.828456126101152,
+      "percent_error_median": 13.743377051163147
+    },
+    {
+      "name": "hour of week mean",
+      "mae_usd_per_mwh": 16.128022832819184,
+      "rmse_usd_per_mwh": 18.740889502593994,
+      "percent_error_mean": 32.830467687033185,
+      "percent_error_median": 30.286993812808262
+    }
+  ],
+  "baseline_regret_4h_usd_per_mwh": {
+    "same hour three days ago": 3.444577156227215,
+    "same hour last week": 3.2433513720720923,
+    "hour of week mean": 2.316930020051039
+  },
+  "model_path": "/Users/kareha/Desktop/EcoShift/price_windows/model.joblib"
+}
