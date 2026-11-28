@@ -1,4 +1,4 @@
-# Schedules are disabled unless var.schedules_enabled is true, because every run costs a little.
+# Scheduled tasks are opt-in because every run costs a little.
 
 data "aws_iam_policy_document" "events_assume" {
   statement {
@@ -42,8 +42,8 @@ resource "aws_iam_role_policy" "events" {
 # Refresh forecasts (the whole pipeline).
 resource "aws_cloudwatch_event_rule" "pipeline" {
   name                = "${var.project}-pipeline"
-  schedule_expression = var.pipeline_schedule
-  state               = var.schedules_enabled ? "ENABLED" : "DISABLED"
+  schedule_expression = var.biweekly_refresh_enabled && !var.schedules_enabled ? "rate(14 days)" : var.pipeline_schedule
+  state               = var.schedules_enabled || var.biweekly_refresh_enabled ? "ENABLED" : "DISABLED"
 }
 
 resource "aws_cloudwatch_event_target" "pipeline" {
