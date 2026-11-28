@@ -7,6 +7,7 @@ import { SAMPLE_SITES } from "@/lib/regions";
 
 /** What the UI needs from the backend. Swap implementations without touching components. */
 export interface EcoShiftApi {
+  supportsAnyLocation?: boolean;
   getSites(signal?: AbortSignal): Promise<Site[]>;
   getForecast(region: string, signal?: AbortSignal): Promise<ForecastResponse>;
   getWindows(request: WindowsRequest, signal?: AbortSignal): Promise<WindowsResponse>;

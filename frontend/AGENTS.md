@@ -16,3 +16,4 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Cache Components is on: never call `Date.now()` or `new Date()` during render. Use `useMinuteClock()` or an effect.
 - Colors come from tokens in `app/globals.css`. No hex values in components.
 - Without `NEXT_PUBLIC_ECOSHIFT_API_URL` the app uses sample data; `?scenario=stale|error|slow` imitates backend states.
+- In the deployed dashboard, `Any location` asks `/v1/windows?location=any` for the cheapest eligible campus. Use the returned location for its forecast and keep the separate campus comparison panel available.
