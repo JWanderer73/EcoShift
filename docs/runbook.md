@@ -65,6 +65,20 @@ overlapping runs, but coordinate anyway).
 
 ## 2. Bring the system up
 
+For a new AWS deployment, create the base stack and upload a trained model before the first
+pipeline run. See [price_windows/README.md](../price_windows/README.md) for training and use the
+matching metrics file with the trained model.
+
+```bash
+pip install -e ".[price]"
+export TF_VAR_aws_region="$AWS_REGION"
+scripts/tf.sh base apply -auto-approve
+export CARBON_ARTIFACTS_BUCKET="$(scripts/tf.sh base output -raw artifacts_bucket)"
+CARBON_STORE=aws python -m carbon.price.upload_model price_windows/model.joblib price_windows/metrics.json
+```
+
+Then start the deployment.
+
 ```zsh
 scripts/deploy.sh up
 ```
@@ -134,8 +148,10 @@ If it does:
 1. Apply bootstrap with `-var enable_github_oidc=true -var github_repo=OWNER/REPO` (use the real values).
 2. In GitHub, Settings > Secrets and variables > Actions > Variables, set `AWS_ROLE_ARN` (the
    `github_actions_role_arn` output), `TF_STATE_BUCKET`, `AWS_REGION`, and `NIGHTLY_DESTROY=true`.
-3. Run the **deploy** workflow with action `up`. The **nightly-destroy** workflow then removes the
-   serving stack every night. Do not commit credentials: this repo is public.
+3. After the first model upload, run **deploy** from `main` with action `up`. The deploy
+   role only trusts workflows on `main`. Run **terraform-plan** from `main` to inspect
+   the live base stack. Pull requests run Terraform validation in CI.
+4. The **nightly-destroy** workflow removes the serving stack each night when enabled.
 
 An alternative is storing an IAM user's access keys as GitHub secrets and swapping the credentials
 step in the workflows. That works but uses long-lived keys.
