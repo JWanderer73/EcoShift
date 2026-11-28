@@ -58,7 +58,8 @@ test.describe("dashboard", () => {
 
   test("the table view lists every hour", async ({ page }) => {
     await page.getByRole("button", { name: "Table" }).click();
-    await expect(page.getByRole("table").locator("tbody tr")).toHaveCount(72);
+    const forecast = page.getByRole("table", { name: "Hourly day-ahead price forecast and cheapest windows" });
+    await expect(forecast.locator("tbody tr")).toHaveCount(72);
   });
 
   test("switching campus reloads the forecast", async ({ page }) => {
