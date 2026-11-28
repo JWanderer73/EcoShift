@@ -111,13 +111,10 @@ if you need tool-specific extras.)
 
 ## Project overview
 
-[One or two sentences: what does this project do, and for whom? e.g.
-"A pipeline that predicts campus dining hall wait times from historical
-swipe data, built for UCSD Housing & Dining."]
+EcoShift, for UCSD DS3, recommends when a flexible computing job should run. The `carbon` CLI picks a low-emission window. `price_windows/` forecasts the CAISO day-ahead price at the five P-nodes nearest each Inflect California datacenter and picks the cheapest block in the next three days.
 
-**Status:** [prototype / active development / deployed]
-**Primary language(s)/framework(s):** [e.g. Python 3.11, pandas,
-scikit-learn, FastAPI, React]
+**Status:** active development
+**Primary language(s)/framework(s):** Python, pandas, scikit-learn, XGBoost, Optuna, Typer
 
 ## Repo structure
 
@@ -133,8 +130,9 @@ rather than redefining logic inline.
 ├── requirements.txt
 ├── pyproject.toml     # installs the `carbon` CLI; pytest and ruff config
 ├── notebooks/        # exploration, EDA, prototyping — not the source of truth for pipeline logic
-├── src/               # the actual reusable code — import this from notebooks
-├── tests/             # pytest-style tests for src/
+├── src/               # the `carbon` CLI
+├── price_windows/     # day-ahead CAISO price model and the morning score
+├── tests/             # pytest-style tests for src/ and price_windows/
 ├── skills/            # agent skills shipped with the project (carbon-windows)
 ├── data/
 │   ├── raw/           # never edit by hand, never overwrite
@@ -145,8 +143,7 @@ rather than redefining logic inline.
 └── infra/             # [delete this line if unused] deployment/cloud config
 ```
 
-[Adjust the tree above to match what you actually have, and delete rows
-that don't apply, e.g. no `frontend/` if there's no UI.]
+`frontend/` and `infra/` are in the tree. The price model does not use them.
 
 ## Dev environment / setup
 
@@ -158,13 +155,10 @@ pip install -e .       # installs the `carbon` command
 cp .env.example .env   # then fill in your own local values — never commit .env
 ```
 
-[Add anything project-specific: a database that needs to be running
-locally, an API key required to run anything, a dataset that needs to be
-downloaded first, etc.]
+Price training does not need an API key. `python -m price_windows.build_dataset` downloads CAISO OASIS prices and the Open-Meteo forecast into `price_windows/cache/`, which is gitignored. The committed `price_dataset.meta.json` describes the columns. Rebuild the CSV locally before a from-scratch train.
 
 ## Running things
 
-- Run the main pipeline: `[e.g. python -m src.pipeline]`
 - Launch notebooks: `jupyter lab notebooks/`
 - Find low-emission windows for a job: `carbon windows --duration 4h`
   (`--json` for coding agents, `--help` for all options). It runs on
@@ -172,8 +166,13 @@ downloaded first, etc.]
   instructions: `skills/carbon-windows/SKILL.md`. Outside this repo it
   installs with `brew install allghelierce/ecoshift/ecoshift` (formula in
   the `Allghelierce/homebrew-ecoshift` tap).
-- [Any other entry point: a Streamlit app, a FastAPI server, a training
-  script — give the exact command.]
+- Price windows, from the repo root. The target is `lmp_usd_per_mwh`. A job's cost is that price times kWh, divided by 1000, and the command prints $/kWh. The youngest legal price lag is 72 hours. Weather is the forecast issued three days ahead (`*_forecast_day3`), shared by nearby P-nodes, including San Mateo. Training keeps one row per node-hour, drops `distance_km`, fits the change from `lmp_lag_72`, and adds that price back. Predictions are not clipped.
+  - `python -m price_windows.build_dataset` writes `price_windows/price_dataset.csv` (gitignored).
+  - `python -m price_windows.train_xgboost --trials 40` searches Optuna and writes `model.joblib` (gitignored) and `metrics.json`.
+  - `python -m price_windows.recommend --site "Santa Clara" --duration 4 --days 3 --kw 8` prints the cheapest block.
+  - `python -m price_windows.daily` scores every campus from the frozen model. It does not train. `sh price_windows/install_daily_job.sh` installs a 07:15 local LaunchAgent.
+  - `python -m price_windows.train_xgboost --update-model` adds trees for rows after `metrics.json` `train_end`. It does not download new weeks. A later week needs `HISTORY_END` moved, then a rebuild and a full search.
+  - Do not start a second `build_dataset` while one is running. Do not rename columns in `price_windows/schema.py` from the trainer or the recommender.
 
 ## Testing
 
@@ -181,12 +180,9 @@ downloaded first, etc.]
   ```bash
   pytest
   ```
-- Some validation also happens inline in notebooks (e.g. sanity-checking
-  shapes/values after a transform) — [say which notebooks, if any, are
-  load-bearing for correctness rather than pure exploration].
+- Price windows: `pytest tests/test_price_dataset.py tests/test_price_train.py tests/test_price_recommend.py tests/test_price_acceptance.py tests/test_price_daily.py`. The acceptance file checks one campus row, five nodes, no price component, no lag under 72 hours, a finite test MAE, percent error only above 5 $/MWh, and dollars on an 8 kW 4-hour job. It does not download and it does not run Optuna.
 - Before opening a PR: run `pytest` and make sure it passes. New logic in
-  `src/` should come with a test — either in `tests/` or a clear
-  assertion-based check in the relevant notebook.
+  `src/` or `price_windows/` should come with a test in `tests/`.
 
 ## Code style & conventions
 
@@ -197,9 +193,7 @@ downloaded first, etc.]
 - No magic numbers in logic — use a named constant or a config value, and
   say where the number comes from if it's empirical (e.g. a tuned
   threshold).
-- [Any project-specific conventions: naming schemes for experiment
-  outputs, a required random seed for reproducibility, a specific
-  logging setup, etc.]
+- Price lag names, the 72-hour floor, and the day-3 weather columns live in `price_windows/schema.py`. The Optuna seed is 0, in `price_windows/helpers.py`.
 
 ## Git / PR workflow
 
@@ -238,15 +232,13 @@ task done. Do this even if the person didn't explicitly ask you to.
 - Never delete or overwrite anything in `data/raw/`.
 - Never install packages beyond what's needed without calling it out and
   updating `requirements.txt`.
-- [Add anything else specific to your project — e.g. "never regenerate
-  `results/` files without being asked, they're checked in as the record
-  of the last approved run."]
+- Never commit `price_windows/price_dataset.csv`, `price_windows/*.joblib`, `price_windows/cache/`, or `price_windows/reports/`. Rebuild them locally.
 - Never finish a task that changed structure/commands/conventions
   without also updating AGENTS.md — see "Keeping this file up to date"
   above.
 
 ## Useful context
 
-[Anything else an agent (or new teammate) would want to know: links to a
-`DesignDoc.md`, the dataset's source/license, known gotchas, an
-in-progress area of the code that's intentionally unfinished, etc.]
+- Design notes: `docs/DesignDoc.md` and `docs/superpowers/specs/2026-10-21-carbon-cli-design.md`.
+- Price commands, the committed file list, and the files that stay local: `price_windows/README.md`.
+- The price history baked into this model is 2025-11-15 through 2026-11-14. The scored test block is the last 28 days.
