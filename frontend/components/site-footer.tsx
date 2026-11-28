@@ -1,9 +1,8 @@
 import { GITHUB_URL } from "@/lib/config";
 
 const SOURCES = [
-  { label: "EIA-930 Hourly Grid Monitor", href: "https://www.eia.gov/electricity/gridmonitor/" },
+  { label: "CAISO OASIS", href: "https://oasis.caiso.com/" },
   { label: "Open-Meteo", href: "https://open-meteo.com/" },
-  { label: "EPA eGRID", href: "https://www.epa.gov/egrid" },
 ];
 
 export function SiteFooter() {

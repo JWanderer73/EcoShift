@@ -34,7 +34,7 @@ export function formatRange(start: Date, end: Date, zone: ZoneOption = {}): stri
   return `${formatDayTime(start, zone)} – ${sameDay ? formatClock(end, zone) : formatDayTime(end, zone)}`;
 }
 
-/** Weekday and 24-hour time like "Thu 14:00", the format the carbon CLI prints. */
+/** Weekday and 24-hour time like "Thu 14:00", the format the CLI prints. */
 export function formatCliTime(time: Date, zone: ZoneOption = {}): string {
   const { weekday, hour, minute } = parts(time, { weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }, zone);
   return `${weekday} ${hour}:${minute}`;
@@ -55,14 +55,26 @@ export function formatAge(since: Date, now: number): string {
   return `${Math.floor(hours / 24)} days ago`;
 }
 
-/** Whole-number intensity with thousands separators, e.g. "1,204". */
-export function formatIntensity(value: number): string {
-  return Math.round(value).toLocaleString("en-US");
+/** Price in $/MWh with a proper minus sign, e.g. 38.4 → "$38.40", -12 → "−$12.00". */
+export function formatPrice(value: number): string {
+  const text = `$${Math.abs(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return value < 0 ? `−${text}` : text;
 }
 
-/** Absolute percent, e.g. 59 → "59%". The caller words the direction ("less"/"more"). */
-export function formatPct(value: number): string {
-  return `${Math.abs(Math.round(value))}%`;
+/** Price as a short axis/label number, e.g. 38.4 → "38", -12 → "−12". */
+export function formatPriceShort(value: number): string {
+  const rounded = Math.round(value);
+  return rounded < 0 ? `−${Math.abs(rounded)}` : String(rounded);
+}
+
+/** A job's dollar cost, e.g. 1.28 → "$1.28", -0.4 → "−$0.40" (negative means being paid). */
+export function formatUsd(value: number): string {
+  return formatPrice(value);
+}
+
+/** Whole-number carbon intensity with thousands separators, e.g. "1,204". */
+export function formatIntensity(value: number): string {
+  return Math.round(value).toLocaleString("en-US");
 }
 
 /** Hours as a short duration, e.g. 4 → "4h". */
@@ -85,11 +97,4 @@ export function toOffsetIso(time: Date): string {
   const sign = offset >= 0 ? "+" : "-";
   const pad = (n: number) => String(Math.floor(Math.abs(n))).padStart(2, "0");
   return `${toDateTimeLocal(time)}${sign}${pad(offset / 60)}:${pad(offset % 60)}`;
-}
-
-const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-
-/** Whole US dollars, e.g. 1240.5 → "$1,241", -12 → "-$12". */
-export function formatUsd(value: number): string {
-  return usd.format(Math.round(value) + 0);
 }

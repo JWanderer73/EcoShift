@@ -1,126 +1,92 @@
 "use client";
 
 import { ChartSpline, Table } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { CliCommand } from "@/components/cli-command";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { getApiClient } from "@/lib/api/client";
-import { SYNTHETIC_SOURCE, type ForecastPoint } from "@/lib/api/types";
-import { forecastEnd, hourStart, lastStartIndex, savedPct } from "@/lib/carbon";
+import { SYNTHETIC_SOURCE, type ForecastPoint, type Site } from "@/lib/api/types";
+import { averagePrice, findBestWindows, forecastEnd, hourStart, indexOfTime, jobCostUsd, lastStartIndex, savedPerMwh } from "@/lib/carbon";
 import { clamp } from "@/lib/chart";
+import { compareSites, pickComparisonSites, placeFromSite, type SiteForecast } from "@/lib/compare";
 import { buildCliCommand } from "@/lib/cli";
-import {
-  CLI_REGION,
-  DEFAULT_CARBON_PRICE,
-  DEFAULT_JOB_HOURS,
-  DEFAULT_POWER_MW,
-  DEFAULT_REGION,
-  FORECAST_HORIZON_HOURS,
-  HOUR_MS,
-  TOP_WINDOWS,
-} from "@/lib/config";
-import { compareSites } from "@/lib/compare";
-import { dollarsSaved, findCheapestWindows, hasPrices, hourlyCost, jobStats, type JobWindow } from "@/lib/cost";
-import { formatDayTime, formatHours, formatIntensity, formatPct, formatRange, formatUsd } from "@/lib/format";
+import { DEFAULT_JOB_HOURS, DEFAULT_KW, DEFAULT_REGION, HOUR_MS } from "@/lib/config";
+import { formatDayTime, formatHours, formatPrice, formatRange, formatUsd } from "@/lib/format";
 import { useMinuteClock } from "@/lib/hooks/use-clock";
 import { useQuery } from "@/lib/hooks/use-query";
-import { BALANCING_AUTHORITIES, findRegion, REGIONS, type BalancingAuthority } from "@/lib/regions";
+import { useSites } from "@/lib/hooks/use-sites";
+import { findSite, siteLabel } from "@/lib/regions";
 import { cn } from "@/lib/utils";
-import { CHART_HEIGHT, ForecastChart, type ChartSeries } from "./forecast-chart";
+import { CHART_HEIGHT, ForecastChart } from "./forecast-chart";
 import { ForecastTable } from "./forecast-table";
 import { NowCard } from "./now-card";
 import { SiteComparison } from "./site-comparison";
-import { CarbonPriceField, DeadlineField, fieldLabel, JobLengthPicker, PowerField, WindowList } from "./planner";
+import { DeadlineField, fieldLabel, JobLengthPicker, PowerField, WindowList } from "./planner";
 import { ErrorState, FreshnessBadge, SampleDataBadge, StaleBanner } from "./status";
 
 type View = "chart" | "table";
-/** What the chart plots: price plus carbon cost (what's ranked), the price alone, or carbon alone. */
-type Metric = "cost" | "price" | "carbon";
 
-/** Ignore differences under a dollar when saying another window is cheaper; it's rounding noise. */
-const CHEAPER_EPSILON_USD = 1;
-/** Ignore differences under this many gCO₂/kWh when saying a window is cleaner (no-price fallback). */
-const CLEANER_EPSILON = 0.5;
+/** Ignore differences under this many $/MWh when saying a window is cheaper; it's rounding noise. */
+const CHEAPER_EPSILON = 0.5;
 
-function RegionSelect({ value, onChange }: { value: string; onChange: (code: string) => void }) {
+function SiteSelect({ sites, value, onChange }: { sites: Site[]; value: string; onChange: (id: string) => void }) {
   return (
     <label className="flex flex-col gap-2">
-      <span className={fieldLabel}>Location</span>
+      <span className={fieldLabel}>Datacenter campus</span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-9 rounded-lg border border-border bg-surface px-3 text-sm font-medium text-ink"
+        className="h-9 max-w-72 rounded-lg border border-border bg-surface px-3 text-sm font-medium text-ink"
       >
-        {(Object.keys(BALANCING_AUTHORITIES) as BalancingAuthority[]).map((ba) => (
-          <optgroup key={ba} label={BALANCING_AUTHORITIES[ba]}>
-            {REGIONS.filter((r) => r.balancingAuthority === ba).map((r) => (
-              <option key={r.code} value={r.code}>
-                {r.name} · {r.city}
-              </option>
-            ))}
-          </optgroup>
+        {sites.length === 0 && <option value={value}>Loading…</option>}
+        {sites.map((s) => (
+          <option key={s.id} value={s.id}>
+            {siteLabel(s, s.id)}
+          </option>
         ))}
       </select>
     </label>
   );
 }
 
-/** A small segmented control. */
-function Segmented<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: T;
-  options: { value: T; label: string; icon?: typeof Table }[];
-  onChange: (value: T) => void;
-}) {
+function ViewToggle({ view, onChange }: { view: View; onChange: (view: View) => void }) {
+  const options = [
+    { value: "chart" as const, label: "Chart", icon: ChartSpline },
+    { value: "table" as const, label: "Table", icon: Table },
+  ];
   return (
-    <div className="flex rounded-lg border border-border p-0.5" role="group" aria-label={label}>
-      {options.map(({ value: option, label: text, icon: Icon }) => (
+    <div className="flex rounded-lg border border-border p-0.5" role="group" aria-label="Show forecast as">
+      {options.map(({ value, label, icon: Icon }) => (
         <button
-          key={option}
+          key={value}
           type="button"
-          aria-pressed={value === option}
-          onClick={() => onChange(option)}
+          aria-pressed={view === value}
+          onClick={() => onChange(value)}
           className={cn(
             "flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium",
-            value === option ? "bg-surface-2 text-ink" : "text-muted hover:text-ink",
+            view === value ? "bg-surface-2 text-ink" : "text-muted hover:text-ink",
           )}
         >
-          {Icon && <Icon className="size-3.5" aria-hidden />}
-          {text}
+          <Icon className="size-3.5" aria-hidden />
+          {label}
         </button>
       ))}
     </div>
   );
 }
 
-const VIEW_OPTIONS = [
-  { value: "chart" as const, label: "Chart", icon: ChartSpline },
-  { value: "table" as const, label: "Table", icon: Table },
-];
-
-const METRIC_OPTIONS = [
-  { value: "cost" as const, label: "Cost" },
-  { value: "price" as const, label: "Price" },
-  { value: "carbon" as const, label: "Carbon" },
-];
-
-function Legend({ name }: { name: string }) {
+function Legend() {
   return (
     <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2">
       <li className="flex items-center gap-1.5">
         <svg width="16" height="8" aria-hidden>
           <line x1="0" x2="16" y1="4" y2="4" stroke="var(--forecast)" strokeWidth="2" strokeLinecap="round" />
         </svg>
-        {name}
+        Price ($/MWh)
       </li>
       <li className="flex items-center gap-1.5">
         <span className="size-3 rounded-sm bg-window/30" aria-hidden />
-        Best windows, numbered by rank
+        Cheapest windows, numbered by rank
       </li>
       <li className="flex items-center gap-1.5">
         <span className="h-3 w-5 rounded bg-window" aria-hidden />
@@ -130,73 +96,34 @@ function Legend({ name }: { name: string }) {
   );
 }
 
-/** The chart's series for a metric, with the other numbers for the hour in the tooltip. */
-function seriesFor(metric: Metric, points: ForecastPoint[], carbonPrice: number): ChartSeries & { title: string } {
-  const detail = (i: number) => {
-    const p = points[i];
-    return metric === "carbon" && p.price !== undefined
-      ? `${formatUsd(p.price)}/MWh power`
-      : `${p.price !== undefined && metric === "cost" ? `${formatUsd(p.price)} power · ` : ""}${formatIntensity(p.intensity)} gCO₂/kWh`;
-  };
-  if (metric === "carbon") {
-    return { title: "Carbon intensity", name: "carbon intensity", unit: "gCO₂/kWh", values: points.map((p) => p.intensity), format: formatIntensity, detail };
-  }
-  if (metric === "price") {
-    return { title: "Wholesale power price", name: "power price", unit: "$/MWh", values: points.map((p) => p.price ?? 0), format: formatUsd, detail };
-  }
-  return {
-    title: `Cost with carbon at ${formatUsd(carbonPrice)}/t`,
-    name: "cost",
-    unit: "$/MWh",
-    values: points.map((p) => hourlyCost(p, carbonPrice)),
-    format: formatUsd,
-    detail,
-  };
-}
-
 function JobReadout({
   points,
   jobStart,
   durationHours,
-  powerMw,
-  carbonPrice,
-  best,
+  kw,
+  bestAvg,
 }: {
   points: ForecastPoint[];
   jobStart: number;
   durationHours: number;
-  powerMw: number;
-  carbonPrice: number;
-  best: JobWindow | undefined;
+  kw: number;
+  bestAvg: number | null;
 }) {
-  const job = jobStats(points, jobStart, durationHours, carbonPrice);
-  const baseline = jobStats(points, 0, durationHours, carbonPrice);
-  const saved = dollarsSaved(baseline, job, powerMw, durationHours);
-  const co2 = savedPct(baseline.avgIntensity, job.avgIntensity);
-  const co2Text = `${formatPct(co2)} ${co2 >= 0 ? "less" : "more"} CO₂`;
-
-  let vsNow;
-  if (jobStart === 0) vsNow = "starting now";
-  else if (saved === null) vsNow = `${co2Text} than starting now`;
-  else vsNow = `${saved >= 0 ? `${formatUsd(saved)} less` : `${formatUsd(-saved)} more`} and ${co2Text} than starting now`;
-
-  let missed = null;
-  if (best && best.startIndex !== jobStart) {
-    const extra = dollarsSaved(job, best, powerMw, durationHours);
-    if (extra !== null && extra > CHEAPER_EPSILON_USD) missed = <> · the best window saves {formatUsd(extra)} more</>;
-    if (extra === null && job.avgIntensity - best.avgIntensity > CLEANER_EPSILON) {
-      missed = <> · the best window is {formatPct(savedPct(job.avgIntensity, best.avgIntensity))} cleaner</>;
-    }
-  }
+  const start = hourStart(points, jobStart);
+  const avg = averagePrice(points, jobStart, durationHours);
+  const nowAvg = averagePrice(points, 0, durationHours);
+  const savedNow = jobCostUsd(savedPerMwh(nowAvg, avg), kw, durationHours);
+  const vsNowText =
+    jobStart === 0 ? "starting now" : savedNow >= 0 ? `${formatUsd(savedNow)} cheaper than starting now` : `${formatUsd(-savedNow)} dearer than starting now`;
+  const missedUsd = bestAvg !== null && avg - bestAvg > CHEAPER_EPSILON ? jobCostUsd(avg - bestAvg, kw, durationHours) : null;
 
   return (
     <p className="mt-3 text-sm text-ink-2" aria-live="polite" data-testid="job-readout">
       <span className="font-medium text-ink">
-        Your {formatHours(durationHours)} job: {formatRange(new Date(job.start), new Date(job.end))}
+        Your {formatHours(durationHours)} job: {formatRange(new Date(start), new Date(start + durationHours * HOUR_MS))}
       </span>{" "}
-      · {job.avgCost === null ? `avg ${formatIntensity(job.avgIntensity)} gCO₂/kWh` : `${formatUsd((job.avgCost ?? 0) * powerMw * durationHours)} at ${formatUsd(job.avgPrice ?? 0)}/MWh`} ·{" "}
-      {vsNow}
-      {missed}
+      · {formatUsd(jobCostUsd(avg, kw, durationHours))} (avg {formatPrice(avg)}/MWh) · {vsNowText}
+      {missedUsd !== null && <> · the best window is {formatUsd(missedUsd)} cheaper</>}
     </p>
   );
 }
@@ -216,47 +143,90 @@ function LoadingState() {
   );
 }
 
-/** The dashboard: location and freshness, the "right now" verdict, the forecast chart, and the job planner. */
+/** Best window for the same job at a handful of campuses, so people can choose where as well as when. */
+function ComparePanel({
+  sites,
+  region,
+  durationHours,
+  kw,
+  deadline,
+  onSelect,
+}: {
+  sites: Site[];
+  region: string;
+  durationHours: number;
+  kw: number;
+  deadline: Date;
+  onSelect: (id: string) => void;
+}) {
+  const picks = useMemo(() => pickComparisonSites(sites, region), [sites, region]);
+  const forecasts = useQuery(picks.length > 0 ? { ids: picks.map((s) => s.id) } : null, async (request, signal) =>
+    Promise.all(
+      request.ids.map(async (id): Promise<{ id: string; points?: ForecastPoint[]; error?: string }> => {
+        try {
+          return { id, points: (await getApiClient().getForecast(id, signal)).points };
+        } catch (error) {
+          if (signal.aborted) throw error;
+          return { id, error: error instanceof Error ? error.message : "Couldn't load the forecast" };
+        }
+      }),
+    ),
+  );
+  const options = useMemo(() => {
+    if (!forecasts.data) return undefined;
+    const byId = new Map(forecasts.data.map((f) => [f.id, f]));
+    const entries: SiteForecast[] = picks.flatMap((site) => {
+      const f = byId.get(site.id);
+      return f ? [{ region: placeFromSite(site), points: f.points, error: f.error }] : [];
+    });
+    return compareSites(entries, durationHours, deadline, 0, kw / 1000);
+  }, [forecasts.data, picks, durationHours, deadline, kw]);
+
+  return (
+    <SiteComparison
+      options={options}
+      error={forecasts.error}
+      onRetry={forecasts.retry}
+      current={region}
+      durationHours={durationHours}
+      kw={kw}
+      deadline={deadline}
+      onSelect={onSelect}
+    />
+  );
+}
+
+/** The dashboard: campus and freshness, the "right now" verdict, the forecast chart, and the job planner. */
 export function Dashboard() {
-  const [region, setRegion] = useState(DEFAULT_REGION);
+  const sites = useSites();
+  const [pickedRegion, setRegion] = useState(DEFAULT_REGION);
+  // With the deployed API the sample default isn't a real campus, so use the first one it lists.
+  const region = sites.length > 0 && !findSite(sites, pickedRegion) ? sites[0].id : pickedRegion;
   const [durationHours, setDurationHours] = useState(DEFAULT_JOB_HOURS);
-  const [powerMw, setPowerMw] = useState(DEFAULT_POWER_MW);
-  const [carbonPrice, setCarbonPrice] = useState(DEFAULT_CARBON_PRICE);
+  const [kw, setKw] = useState(DEFAULT_KW);
   /** Value from the deadline input (local wall-clock time); null means the end of the forecast. */
   const [deadlineInput, setDeadlineInput] = useState<string | null>(null);
   /** Where the user has dragged the job to; null means "follow the best window". */
   const [pickedStart, setPickedStart] = useState<number | null>(null);
   const [highlightedRank, setHighlightedRank] = useState<number | null>(null);
   const [view, setView] = useState<View>("chart");
-  const [metric, setMetric] = useState<Metric>("cost");
   const now = useMinuteClock();
 
   const forecast = useQuery({ region }, (request, signal) => getApiClient().getForecast(request.region, signal));
   const data = forecast.data;
   const points = data?.points ?? [];
-  const priced = hasPrices(points);
   const end = points.length ? forecastEnd(points) : null;
   const customDeadline = deadlineInput && !Number.isNaN(Date.parse(deadlineInput)) ? new Date(deadlineInput) : null;
   const deadline = end === null ? null : (customDeadline ?? new Date(end));
-  const site = findRegion(region);
 
-  // Every site's forecast for the comparison. A site that fails (e.g. an API that doesn't cover
-  // it yet) shows as unavailable instead of failing the whole table.
-  const allSites = useQuery({ sites: REGIONS.map((r) => r.code) }, (request, signal) =>
-    Promise.all(
-      request.sites.map((code) =>
-        getApiClient()
-          .getForecast(code, signal)
-          .then(
-            (f) => ({ code, points: f.points, error: undefined }),
-            (error: unknown) => {
-              if (signal.aborted) throw error;
-              return { code, points: undefined, error: error instanceof Error ? error.message : String(error) };
-            },
-          ),
-      ),
-    ),
+  const windowsQuery = useQuery(
+    data?.region === region && deadline ? { region, durationHours, kw, deadline: deadline.toISOString() } : null,
+    (request, signal) => getApiClient().getWindows(request, signal),
   );
+  const windowsData = windowsQuery.data;
+  // Only trust windows computed for what's on screen; older ones stay listed (dimmed) but off the chart.
+  const windowsMatch = windowsData?.region === region && windowsData.job.duration_hours === durationHours && windowsData.job.kw === kw;
+  const windows = windowsMatch ? windowsData.windows : [];
 
   function changeRegion(code: string) {
     setRegion(code);
@@ -274,17 +244,6 @@ export function Dashboard() {
     setPickedStart(null);
   }
 
-  /** Switch to a site from the comparison, and bring its answer into view. */
-  function selectSite(code: string) {
-    changeRegion(code);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
-  function changeCarbonPrice(value: number) {
-    setCarbonPrice(value);
-    setPickedStart(null);
-  }
-
   let body;
   if (forecast.error) {
     body = (
@@ -297,67 +256,44 @@ export function Dashboard() {
   } else if (!data || deadline === null || end === null) {
     body = <LoadingState />;
   } else {
-    // Ranked here rather than by the API: the slider re-ranks on every move, and the forecast
-    // already carries everything the ranking needs.
-    const windows = findCheapestWindows(points, durationHours, deadline, TOP_WINDOWS, carbonPrice);
-    const baseline = jobStats(points, 0, Math.min(durationHours, points.length), carbonPrice);
     const lastStart = lastStartIndex(points, durationHours, deadline);
-    const jobStart = lastStart < 0 ? null : clamp(pickedStart ?? windows[0]?.startIndex ?? 0, 0, lastStart);
-    const shown = findRegion(data.region);
-    const regionName = shown?.name ?? data.region;
+    // Place the job on the API's best window; before that arrives, on the same calculation done locally.
+    const best = windows[0] ?? findBestWindows(points, durationHours, deadline, 1, kw)[0];
+    const defaultStart = best ? Math.max(indexOfTime(points, best.start), 0) : 0;
+    const jobStart = lastStart < 0 ? null : clamp(pickedStart ?? defaultStart, 0, lastStart);
+    const current = points[0];
+    const regionName = siteLabel(findSite(sites, data.region), data.region);
+    const firstHour = current.start;
     const nowHours = now === null ? null : clamp((now - hourStart(points, 0)) / HOUR_MS, 0, points.length);
     const deadlineHours = clamp((deadline.getTime() - hourStart(points, 0)) / HOUR_MS, 0, points.length);
-    const shownMetric = priced ? metric : "carbon";
-    const series = seriesFor(shownMetric, points, carbonPrice);
-    const siteOptions = allSites.data
-      ? compareSites(
-          allSites.data.flatMap(({ code, points: sitePoints, error }) => {
-            const r = findRegion(code);
-            return r ? [{ region: r, points: sitePoints, error }] : [];
-          }),
-          durationHours,
-          deadline,
-          carbonPrice,
-          powerMw,
-        )
-      : undefined;
+    const refetching = forecast.isRefetching || windowsQuery.isRefetching;
 
     body = (
-      <div className={cn("space-y-4 transition-opacity", forecast.isRefetching && "opacity-60")} aria-busy={forecast.isRefetching}>
+      <div className={cn("space-y-4 transition-opacity", refetching && "opacity-60")} aria-busy={refetching}>
         <NowCard
           regionName={regionName}
-          location={shown ? `${shown.address} · ${shown.utility}` : undefined}
-          current={points[0]}
+          current={current}
           durationHours={durationHours}
-          powerMw={powerMw}
-          carbonPrice={carbonPrice}
-          best={windows[0]}
-          baseline={baseline}
+          best={windowsMatch ? windows[0] : undefined}
+          baseline={windowsMatch ? windowsData.baseline : undefined}
+          firstHour={firstHour}
         />
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start">
           <Card className="min-w-0">
             <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
               <div>
-                <CardTitle>
-                  {series.title}, next {FORECAST_HORIZON_HOURS} hours
-                </CardTitle>
-                <CardDescription>
-                  {series.unit} · {regionName} · times in your time zone
-                </CardDescription>
+                <CardTitle>Electricity price, next {Math.round(points.length / 24)} days</CardTitle>
+                <CardDescription>$/MWh · {regionName} · times in your time zone</CardDescription>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {priced && view === "chart" && <Segmented label="Plot" value={metric} options={METRIC_OPTIONS} onChange={setMetric} />}
-                <Segmented label="Show forecast as" value={view} options={VIEW_OPTIONS} onChange={setView} />
-              </div>
+              <ViewToggle view={view} onChange={setView} />
             </div>
             <div className="mb-2">
-              <Legend name={series.title} />
+              <Legend />
             </div>
             {view === "chart" ? (
               <ForecastChart
                 points={points}
-                series={series}
                 windows={windows}
                 durationHours={durationHours}
                 jobStart={jobStart}
@@ -369,16 +305,15 @@ export function Dashboard() {
                 onHighlightRank={setHighlightedRank}
               />
             ) : (
-              <ForecastTable points={points} windows={windows} durationHours={durationHours} carbonPrice={carbonPrice} priced={priced} />
+              <ForecastTable points={points} windows={windows} durationHours={durationHours} />
             )}
             {jobStart !== null && (
               <JobReadout
                 points={points}
                 jobStart={jobStart}
                 durationHours={durationHours}
-                powerMw={powerMw}
-                carbonPrice={carbonPrice}
-                best={windows[0]}
+                kw={kw}
+                bestAvg={windows[0]?.avg_price_usd_per_mwh ?? null}
               />
             )}
           </Card>
@@ -387,51 +322,43 @@ export function Dashboard() {
             <section aria-labelledby="best-times">
               <CardTitle id="best-times">Best start times</CardTitle>
               <CardDescription className="mb-3">
-                {formatHours(durationHours)} job{priced && <> · {powerMw} MW</>} · done by {formatDayTime(deadline)}
+                {formatHours(durationHours)} job · done by {formatDayTime(deadline)}
               </CardDescription>
-              {windows.length > 0 ? (
-                <WindowList
-                  windows={windows}
-                  baseline={baseline}
-                  powerMw={powerMw}
-                  durationHours={durationHours}
-                  jobStart={jobStart}
-                  highlightedRank={highlightedRank}
-                  onHighlight={setHighlightedRank}
-                  onSelect={(w) => setPickedStart(w.startIndex)}
-                />
+              {windowsQuery.error ? (
+                <ErrorState title="Couldn't rank start times" message={windowsQuery.error.message} onRetry={windowsQuery.retry} />
+              ) : windowsData && (windowsMatch || windowsQuery.isRefetching) ? (
+                windowsData.windows.length > 0 ? (
+                  <WindowList
+                    windows={windowsData.windows}
+                    firstHour={firstHour}
+                    jobStartTime={jobStart === null ? null : points[jobStart].start}
+                    highlightedRank={highlightedRank}
+                    onHighlight={setHighlightedRank}
+                    onSelect={(w) => setPickedStart(indexOfTime(points, w.start))}
+                  />
+                ) : (
+                  <p className="rounded-xl border border-border px-3 py-3 text-sm text-ink-2">
+                    No {formatHours(durationHours)} window fits before the deadline. Pick a later time or a shorter job.
+                  </p>
+                )
               ) : (
-                <p className="rounded-xl border border-border px-3 py-3 text-sm text-ink-2">
-                  No {formatHours(durationHours)} window fits before the deadline. Pick a later time or a shorter job.
-                </p>
+                <div className="h-44 animate-pulse rounded-xl bg-surface-2" aria-hidden />
               )}
             </section>
 
-            {site?.balancingAuthority === CLI_REGION && (
-              <section aria-labelledby="cli-heading">
-                <h3 id="cli-heading" className="mb-2 text-sm font-medium text-ink">
-                  Carbon-only answer in your terminal
-                </h3>
-                <CliCommand command={buildCliCommand({ region: CLI_REGION, durationHours, deadline: customDeadline })} />
-                <p className="mt-1.5 text-xs text-muted">
-                  The CLI ranks the whole CAISO grid by carbon for now. Add <code className="font-mono">--json</code> for coding agents.
-                </p>
-              </section>
-            )}
+            <section aria-labelledby="cli-heading">
+              <h3 id="cli-heading" className="mb-2 text-sm font-medium text-ink">
+                Same answer in your terminal
+              </h3>
+              <CliCommand command={buildCliCommand({ region, durationHours, kw, deadline: customDeadline })} />
+              <p className="mt-1.5 text-xs text-muted">
+                Add <code className="font-mono">--json</code> for coding agents.
+              </p>
+            </section>
           </Card>
         </div>
 
-        <SiteComparison
-          options={siteOptions}
-          error={allSites.error}
-          onRetry={allSites.retry}
-          current={region}
-          durationHours={durationHours}
-          powerMw={powerMw}
-          carbonPrice={carbonPrice}
-          deadline={deadline}
-          onSelect={selectSite}
-        />
+        <ComparePanel sites={sites} region={region} durationHours={durationHours} kw={kw} deadline={deadline} onSelect={changeRegion} />
       </div>
     );
   }
@@ -440,8 +367,8 @@ export function Dashboard() {
     <main className="mx-auto w-full max-w-6xl flex-1 space-y-4 px-4 py-6 sm:py-8">
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Compute planner</h1>
-          <p className="text-sm text-muted">Find the cheapest, cleanest time and data center for a heavy job in California.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Electricity price forecast</h1>
+          <p className="text-sm text-muted">Find the cheapest time to run a heavy job.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {data && <FreshnessBadge generatedAt={data.generated_at} stale={data.stale} now={now} />}
@@ -451,10 +378,9 @@ export function Dashboard() {
 
       {/* Everything the answer depends on, above the answer. */}
       <div className="flex flex-wrap items-start gap-x-8 gap-y-4">
-        <RegionSelect value={region} onChange={changeRegion} />
+        <SiteSelect sites={sites} value={region} onChange={changeRegion} />
         <JobLengthPicker value={durationHours} onChange={changeDuration} />
-        <PowerField value={powerMw} onChange={setPowerMw} />
-        <CarbonPriceField value={carbonPrice} onChange={changeCarbonPrice} disabled={data !== undefined && !priced} />
+        <PowerField value={kw} onChange={setKw} />
         {deadline && end !== null ? (
           <DeadlineField
             value={deadline}

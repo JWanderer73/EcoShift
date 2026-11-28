@@ -5,18 +5,21 @@ import Link from "next/link";
 import { SampleDataBadge } from "@/components/dashboard/status";
 import { Card } from "@/components/ui/card";
 import { SYNTHETIC_SOURCE } from "@/lib/api/types";
-import { CLI_REGION_NAME, DEFAULT_JOB_HOURS, FORECAST_HORIZON_HOURS } from "@/lib/config";
-import { formatHours, formatIntensity, formatPct, formatRange } from "@/lib/format";
+import { DEFAULT_JOB_HOURS } from "@/lib/config";
+import { formatHours, formatPrice, formatRange, formatUsd } from "@/lib/format";
 import { useDefaultForecast } from "@/lib/hooks/use-default-forecast";
+import { useSites } from "@/lib/hooks/use-sites";
+import { findSite, siteLabel } from "@/lib/regions";
 import { MiniForecast } from "./mini-forecast";
 
-const regionName = CLI_REGION_NAME;
-
-/** Hero card with the current forecast for the default region, so the landing page leads with real output. */
+/** Hero card with the current forecast for the default campus, so the landing page leads with real output. */
 export function LiveForecastCard() {
   const { forecast, windows } = useDefaultForecast();
+  const sites = useSites();
   const points = forecast.data?.points;
   const best = windows.data?.windows[0];
+  const regionName = siteLabel(findSite(sites, forecast.data?.region ?? ""), forecast.data?.region ?? "");
+  const days = points ? Math.round(points.length / 24) : 0;
 
   let content;
   if (forecast.error || windows.error) {
@@ -29,11 +32,12 @@ export function LiveForecastCard() {
       <>
         <p className="text-2xl font-semibold tracking-tight text-balance" data-testid="hero-headline">
           {!best || isNowBest ? (
-            <>Right now is the cleanest time this {FORECAST_HORIZON_HOURS}h to run a {formatHours(DEFAULT_JOB_HOURS)} job.</>
+            <>Right now is the cheapest time in the next {days} days to run a {formatHours(DEFAULT_JOB_HOURS)} job.</>
           ) : (
             <>
-              {regionName}&apos;s grid will be {formatPct(best.co2_saved_pct)} cleaner{" "}
-              <span className="whitespace-nowrap">{formatRange(new Date(best.start), new Date(best.end))}</span> than right now.
+              Power is cheapest{" "}
+              <span className="whitespace-nowrap">{formatRange(new Date(best.start), new Date(best.end))}</span>: {formatUsd(best.saved_usd)}{" "}
+              less than starting now for a {formatHours(DEFAULT_JOB_HOURS)} job.
             </>
           )}
         </p>
@@ -41,18 +45,18 @@ export function LiveForecastCard() {
           <MiniForecast points={points} bestStart={best?.start} durationHours={DEFAULT_JOB_HOURS} />
           <div className="mt-1 flex justify-between text-xs text-muted">
             <span>Now</span>
-            <span>+{FORECAST_HORIZON_HOURS}h</span>
+            <span>+{points.length}h</span>
           </div>
         </div>
         <dl className="mt-5 grid grid-cols-2 gap-4 border-t border-border pt-4 text-sm">
           <div>
             <dt className="text-muted">Right now</dt>
-            <dd className="font-semibold">{formatIntensity(points[0].intensity)} gCO₂/kWh</dd>
+            <dd className="font-semibold">{formatPrice(points[0].price)}/MWh</dd>
           </div>
           {best && (
             <div>
               <dt className="text-muted">Best {formatHours(DEFAULT_JOB_HOURS)} window</dt>
-              <dd className="font-semibold">avg {formatIntensity(best.avg_intensity_g_per_kwh)} gCO₂/kWh</dd>
+              <dd className="font-semibold">{formatUsd(best.cost_usd)} · avg {formatPrice(best.avg_price_usd_per_mwh)}/MWh</dd>
             </div>
           )}
         </dl>
@@ -64,7 +68,7 @@ export function LiveForecastCard() {
     <Card className="shadow-sm">
       <div className="mb-4 flex items-center justify-between gap-3">
         <p className="text-sm font-medium text-ink-2">
-          {regionName} grid · next {FORECAST_HORIZON_HOURS} hours
+          {regionName} · next {days} days
         </p>
         {forecast.data?.data_source === SYNTHETIC_SOURCE && <SampleDataBadge />}
       </div>

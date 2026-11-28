@@ -2,26 +2,25 @@
 
 import { useState } from "react";
 import { buildCliCommand, formatCliJson, formatCliTable } from "@/lib/cli";
-import { CLI_REGION, DEFAULT_JOB_HOURS } from "@/lib/config";
+import { DEFAULT_JOB_HOURS, DEFAULT_REGION } from "@/lib/config";
 import { useMinuteClock } from "@/lib/hooks/use-clock";
 import { useDefaultForecast } from "@/lib/hooks/use-default-forecast";
 import { cn } from "@/lib/utils";
 
-const COMMAND = buildCliCommand({ region: CLI_REGION, durationHours: DEFAULT_JOB_HOURS, deadline: null });
-
 const TABS = {
-  table: { label: "For people", command: COMMAND },
-  json: { label: "For agents", command: `${COMMAND} --json` },
+  table: { label: "For people" },
+  json: { label: "For agents" },
 };
 
 type Tab = keyof typeof TABS;
 
-/** A terminal showing what the carbon CLI prints for the same forecast as the hero card, as a table or JSON. */
+/** A terminal showing what the CLI prints for the same forecast as the hero card, as a table or JSON. */
 export function CliShowcase() {
   const [tab, setTab] = useState<Tab>("table");
   const { forecast, windows } = useDefaultForecast();
   const now = useMinuteClock();
   const error = forecast.error ?? windows.error;
+  const command = buildCliCommand({ region: forecast.data?.region ?? DEFAULT_REGION, durationHours: DEFAULT_JOB_HOURS, deadline: null });
 
   let output;
   if (error) {
@@ -60,7 +59,7 @@ export function CliShowcase() {
       {/* Terminal line height so box-drawing lines join. Tall enough for the table output (16 lines) so
           switching tabs doesn't jump; the JSON scrolls. */}
       <pre className="h-[16.5rem] overflow-auto p-4 font-terminal text-xs leading-[1.2]" data-testid="cli-output">
-        <span className="text-terminal-accent">$</span> {TABS[tab].command}
+        <span className="text-terminal-accent">$</span> {tab === "json" ? `${command} --json` : command}
         {"\n"}
         {output}
       </pre>

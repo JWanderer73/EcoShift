@@ -1,198 +1,170 @@
-# DS3 Project Template
+# Carbon windows
 
-A clean starter template for data science and machine learning projects at UC San Diego's DS3.
+Find lower-cost or lower-emission times to run a heavy job. The cloud API, dashboard and
+`carbon-windows` CLI use the price forecast. The `carbon` CLI uses the separate emissions forecast.
 
-## What this template includes
+The local cloud demo uses synthetic data. AWS uses CAISO day-ahead prices and an uploaded
+model. The [runbook](docs/runbook.md) covers the first deployment and model upload.
 
-- A sensible folder structure for notebooks, source code, data, and outputs
-- A Python environment file for quick setup
-- A .gitignore tailored for secrets, notebooks, and generated artifacts
-- A small starter package and test example
+## Architecture
 
-## Use the `carbon` CLI
+**A. Serving.** An ALB spans two AZs and routes `/v1/*` to the API and everything else to the
+dashboard (the Next.js app in `frontend/`), both ECS Fargate services. The API only reads precomputed forecasts; no ML runs at
+request time.
 
-`carbon` finds the lowest-emission time in the next 48 hours to run a long job.
+```mermaid
+flowchart LR
+  C["Clients: web, CLI, agents"] --> ALB["ALB (2 AZs)"]
+  ALB -- "/v1/*" --> API["API service<br/>ECS Fargate, 2 tasks"]
+  ALB -- "everything else" --> DASH["Dashboard service<br/>ECS Fargate"]
+  API --> DDB[("DynamoDB<br/>forecasts + status")]
+```
+
+**B. Training.** EventBridge starts a Step Functions workflow. Each step is an ECS Fargate task
+running the same image with a different command. A failure anywhere is written to the status
+record (which the API turns into a warning) and sent to SNS.
+
+```mermaid
+flowchart LR
+  EB["EventBridge schedule"] --> I
+  SRC["Data sources (TBD)"] --> I
+  subgraph SFN["Step Functions: each step is an ECS Fargate task"]
+    I["ingest"] --> T["train"] --> G["gate"] --> P["predict"]
+  end
+  I --> S3a[("S3 clean tables")]
+  T --> S3b[("S3 model registry")]
+  G --> S3b
+  P --> DDB[("DynamoDB forecasts")]
+  SFN -. "on failure" .-> ST[("status record + SNS alert")]
+```
+
+## Try it locally (no AWS)
 
 ```bash
-brew install allghelierce/ecoshift/ecoshift   # macOS or Linux
-carbon windows --duration 3h                  # headline, chart and table
-carbon windows --duration 3h --json           # for coding agents
+pip install -e ".[cli,price,dev]"
+make seed        # run ingest -> train -> gate -> predict with stub data
+make api         # http://localhost:8000/docs
+carbon-windows best --duration 4 --max-wait 1d
+make web         # Next.js UI, http://localhost:3000 (proxies /v1/* to the API on :8000)
+make test
 ```
 
-Without Homebrew: `pipx install git+https://github.com/JWanderer73/EcoShift.git@v0.1.0`.
+Or with Docker: `docker compose run --rm pipeline && docker compose up --build`.
+State is kept as JSON files in `.local/`. If you build the image on Apple silicon for AWS, use
+`--platform linux/amd64`.
 
-To teach Claude Code when to run it, install its skill (Homebrew prints this after installing):
+## Repo layout
+
+```
+src/carbon/
+  api/        FastAPI app: /v1/forecast, /v1/windows, /v1/health
+  jobs/       ingest, train, gate, predict, accuracy, pipeline (local runner)
+  model/      the Model interface + baseline models + registry
+  common/     config-driven storage, window search, validation, time helpers
+  cli/        Typer CLI
+frontend/     Next.js dashboard, deployed to ECS (talks to the API only, via lib/api/carbon-v1.ts)
+skills/       agent skill (SKILL.md) for the CLI
+fixtures/     example API responses, generated from the real code (make fixtures)
+infra/        Terraform: bootstrap, base, serving, training, freeplan-check
+scripts/      deploy.sh, tf.sh, run_pipeline.sh, make_fixtures.py
+docs/         runbook (bring up, demo, tear down)
+```
+
+## Swapping in the real data and model
+
+| Task | Where | Notes |
+|------|-------|-------|
+| Real data sources | `jobs/ingest.py`, `fetch_raw()` | The only code that knows where data comes from. Keep the output shape (hourly UTC values) and the `validate_series` call. |
+| A real model | `model/`, implement `Model`, add it to `registry.py`, set `CARBON_MODEL` | `fit(history)` and `predict(history, horizon)`; return p10/p50/p90. Nothing else changes. |
+| Locations, history, horizon, refresh, thresholds | environment variables, see `config.py` | Terraform exposes the main ones as variables. |
+
+The forecast shape (hourly rows with `ts`, `price` in $/MWh, and in price mode `kind` and `nodes`) is the contract the API,
+dashboard and CLI depend on. If the real data changes the granularity, update `jobs/predict.py`
+and `api/main.py` together.
+
+## API
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /v1/sites` | The datacenter campuses served, each with its five nearby price nodes. |
+| `GET /v1/forecast?location=&node=&hours=` | Hourly $/MWh: `published` day-ahead hours, then `forecast` hours (three days). |
+| `GET /v1/windows?duration_hours=&kw=&max_wait=&deadline=&location=&node=&top=` | Cheapest windows with job cost in dollars, a `run_now` / `delay` recommendation, and dollars saved at several wait limits. |
+| `GET /v1/health` | Pipeline status and forecast age. Always returns 200 so the load balancer does not cycle tasks. |
+
+`max_wait` (`90m`, `3h`, `1d`) is the longest delay you accept; `deadline` (ISO time) is when the job
+must finish. Use one or neither. Interactive docs are at `/docs`. Example responses are in `fixtures/`.
+
+**Warnings.** Every response carries a `warnings` list:
+
+| Code | Meaning |
+|------|---------|
+| `pipeline_failed` | The last pipeline run failed. The last good forecast is still being served. |
+| `forecast_stale` | The forecast is older than `CARBON_STALE_AFTER_HOURS` (the pipeline has stopped running). |
+| `model_fallback` | The champion model could not be loaded, so the baseline was used. |
+| `data_quality_degraded` | Many input hours were imputed. |
+| `wait_clamped_to_horizon` | The requested wait was longer than the forecast covers. |
+
+Errors are `{"error": {"code", "message"}}`: `404 unsupported_location`, `503 no_forecast`,
+`503 forecast_expired`, `422` for bad parameters.
+
+## Cloud CLI and agent skill
 
 ```bash
-mkdir -p ~/.claude/skills
-cp -R "$(brew --prefix)/share/ecoshift/skills/carbon-windows" ~/.claude/skills/
+export CARBON_API_URL=http://<alb-dns>   # default http://localhost:8000
+carbon-windows best -d 4 -w 1d           # table
+carbon-windows best -d 4 -w 1d --json    # for agents
+carbon-windows forecast --hours 24
+carbon-windows status
 ```
 
-The forecasts are synthetic until the EcoShift API is deployed, and the output says so.
+Exit codes: `0` ok, `2` bad arguments, `3` API unreachable, `4` data returned but stale or the
+pipeline failed (`--allow-stale` ignores this), `5` API error.
 
-## Price windows
+To give a coding agent the skill, copy `skills/cloud-price-windows/` into the agent's skills directory.
 
-`price_windows/` forecasts the CAISO day-ahead price in dollars per megawatt-hour at the five P-nodes nearest each Inflect California datacenter, and prints that price in $/kWh. Setup, the three commands, and the list of files that belong in git are in [`price_windows/README.md`](price_windows/README.md).
+## Emissions CLI
+
+The `carbon` command ranks low-emission windows using the existing 48-hour sample forecast.
+Install it with `pipx install .` from a checkout, or use the existing Homebrew tap.
 
 ```bash
-python -m price_windows.build_dataset
-python -m price_windows.train_xgboost
-python -m price_windows.recommend --site "Santa Clara" --duration 4 --days 3 --kw 8
+carbon windows --duration 3h --json
 ```
 
-## Suggested repository structure
+The matching agent skill is in `skills/carbon-windows/`. The offline CAISO price modeling
+commands are documented in [price_windows/README.md](price_windows/README.md).
 
-```text
-.
-├── README.md
-├── .env.example
-├── .gitignore
-├── requirements.txt
-├── notebooks/
-│   └── README.md
-├── src/
-│   ├── __init__.py
-│   └── example.py
-├── frontend/
-│   └── README.md
-├── infra/
-│   └── README.md
-├── data/
-│   ├── raw/
-│   └── processed/
-├── results/
-├── models/
-└── tests/
-```
+## Model rollout
 
-- `frontend/` is for UI/UX code and web app assets.
-- `infra/` is for deployment scripts, cloud config, and infrastructure as code for AWS/GCP.
+New models go through a gate: a freshly trained model is promoted to champion only if it is no
+worse than the current champion on the most recent held-out hours. That is the only rollout
+mechanism (no traffic splitting). Optionally set `CARBON_SHADOW=1` to also write the newest
+candidate's forecasts under its own version tag without serving them; the hourly accuracy job
+scores both against actuals as they arrive.
 
-## Quick start
+Limits of the stub gate: the champion's holdout score is computed on data it may have seen. Use a
+proper rolling-origin backtest once the real model exists.
 
-1. Create a virtual environment:
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
-   ```
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Copy the example environment file:
-   ```bash
-   cp .env.example .env
-   ```
-   **.env files are generally not shared on GitHub; they are included here only as an example template.**
-4. Start working in notebooks or in the src package.
+## Deploying to AWS
 
-## Repository guidelines
+See [docs/runbook.md](docs/runbook.md). Short version:
 
-- Keep notebooks for exploration and visualization.
-- Put reusable logic in src so notebooks stay readable.
-- Do not commit secrets, API keys, or large data files.
-- Use clear filenames and short, documented functions.
-- Add tests for any core logic that will be reused.
+1. Use the region your AWS project allows (default `us-east-2`). AWS blocks workloads in other regions.
+2. Check the account allows ECS Fargate and ALBs (`infra/freeplan-check`).
+3. Apply `infra/bootstrap` once for the state bucket, set `TF_STATE_BUCKET`, then run `scripts/deploy.sh up`.
 
-## Git and GitHub workflow for DS3 projects
+The Free plan's managed policy blocks GitHub OIDC, so the default path deploys from one machine.
+The GitHub workflows are included for accounts where OIDC is allowed.
 
-Using Git and GitHub well is just as important as writing good code. A clean workflow makes collaboration easier and helps the project stay organized.
+Cost: the ALB bills by the hour even with no tasks, and an ALB plus a few small Fargate tasks is
+roughly $0.06-0.08 per hour (check the AWS pricing calculator). Run `scripts/deploy.sh down-serving`
+whenever you stop working, and `down-all` after the demo.
 
-### 1. Use GitHub Issues for tracking work
+## What has and has not been verified
 
-Create an Issue for each task, bug, experiment, or feature request. Keep each issue focused and include:
-
-- a short title
-- a clear description of the work
-- acceptance criteria if relevant
-- labels such as bug, enhancement, documentation, or blocked
-
-Example workflow:
-- one issue for data cleaning
-- one issue for model training
-- one issue for documentation updates
-
-### 2. Use branches to separate work
-
-Each person or feature should usually work in its own branch. This prevents people from overwriting each other's changes.
-
-Common branch commands:
-
-```bash
-git branch
-git checkout -b feature/my-task
-git checkout main
-git branch -d feature/my-task
-```
-
-What they mean:
-- `git branch` shows existing branches
-- `git checkout -b feature/my-task` creates and switches to a new branch
-- `git checkout main` switches back to the main branch
-- `git branch -d feature/my-task` deletes a branch after it is merged
-
-### 3. Use pull requests to merge code into main
-
-When work is complete, open a Pull Request (PR) from your branch into `main`. A PR is the place to review changes, discuss issues, and confirm everything is ready.
-
-Important rule:
-- Only project managers or mentors should approve pull requests.
-- Students should contribute code, but approvals should be handled by the designated maintainers.
-
-### 4. Basic Git commands and what they mean
-
-```bash
-git clone <repo-url>
-git status
-git add <file>
-git add .
-git commit -m "Describe your change"
-git push origin <branch-name>
-git log
-git merge <branch-name>
-git rebase <branch-name>
-```
-
-What they mean:
-- `git clone` copies a repository from GitHub to your local machine
-- `git status` shows which files changed and what branch you are on
-- `git add` stages files for commit
-- `git commit` saves staged changes with a message
-- `git push` uploads your local commits to GitHub
-- `git log` shows recent commit history
-- `git merge` combines another branch into your current branch
-- `git rebase` reapplies your commits on top of another branch and can help keep history cleaner
-
-### 5. Recommended team habits
-
-- Pull the latest changes before starting work
-- Keep commits small and descriptive
-- Avoid committing large data files or secrets
-- Open a PR early for feedback, not only at the end
-- Resolve merge conflicts carefully and communicate with the team
-
-### 6. Example workflow
-
-```bash
-git checkout main
-git pull origin main
-git checkout -b feature/data-cleaning
-git status
-git add .
-git commit -m "Add initial data cleaning script"
-git push origin feature/data-cleaning
-```
-
-Then open a Pull Request on GitHub and wait for approval from the appropriate project manager or mentor.
-
-## Notes for DS3 projects
-
-This template is intentionally simple so students can focus on the science instead of setup. As projects grow, teams can add:
-
-- experiment tracking
-- model checkpoints
-- deployment scripts
-- cloud infrastructure (AWS/GCP) in `infra/`
-- frontend UI/UX code in `frontend/`
-- CI checks
-- docs pages
+- Python code: 49 tests pass (window search, validation, models, pipeline, failure handling, API,
+  CLI, and the AWS storage path against fake AWS via `moto`), and the dashboard was run headlessly
+  against a live API.
+- Terraform and workflows: formatted, syntax-checked and cross-reference-checked, **but never applied**.
+  `terraform validate` and a real apply still need to happen on a machine with registry and AWS
+  access. Expect to fix small things on the first apply; the CI workflow runs `validate` for you.

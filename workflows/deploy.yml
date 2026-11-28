@@ -1,0 +1,89 @@
+name: deploy
+
+# Bring the system up or tear parts of it down. Nobody applies Terraform from a laptop.
+#   up            base -> build and push the image -> training -> serving -> one pipeline run
+#   down-serving  destroy the serving stack (the only part that costs real money per hour)
+#   down-all      destroy serving, training and base (bootstrap is never destroyed)
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: What to do
+        type: choice
+        options: [up, down-serving, down-all]
+        default: up
+      schedules_enabled:
+        description: Run the pipeline on a schedule (only for `up`)
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency: terraform
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
+  TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-arn: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+
+      - name: Base stack
+        if: inputs.action == 'up'
+        run: ./scripts/tf.sh base apply -auto-approve
+
+      - name: Log in to ECR
+        id: ecr
+        if: inputs.action == 'up'
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push the image
+        if: inputs.action == 'up'
+        run: |
+          REPO="${{ steps.ecr.outputs.registry }}/carbon-windows"
+          docker build --platform linux/amd64 -t "$REPO:${GITHUB_SHA::12}" -t "$REPO:latest" .
+          docker push --all-tags "$REPO"
+
+      - name: Training stack
+        if: inputs.action == 'up'
+        run: >
+          ./scripts/tf.sh training apply -auto-approve
+          -var "image_tag=${GITHUB_SHA::12}"
+          -var "schedules_enabled=${{ inputs.schedules_enabled }}"
+
+      - name: Serving stack
+        if: inputs.action == 'up'
+        run: ./scripts/tf.sh serving apply -auto-approve -var "image_tag=${GITHUB_SHA::12}"
+
+      - name: Run the pipeline once so there are forecasts to serve
+        if: inputs.action == 'up'
+        run: ./scripts/run_pipeline.sh
+
+      - name: Print the URL
+        if: inputs.action == 'up'
+        run: echo "App is at $(./scripts/tf.sh serving output -raw url)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Destroy serving
+        if: inputs.action == 'down-serving' || inputs.action == 'down-all'
+        run: ./scripts/tf.sh serving destroy -auto-approve
+
+      - name: Destroy training
+        if: inputs.action == 'down-all'
+        run: ./scripts/tf.sh training destroy -auto-approve
+
+      - name: Destroy base
+        if: inputs.action == 'down-all'
+        run: ./scripts/tf.sh base destroy -auto-approve

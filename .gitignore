@@ -41,3 +41,17 @@ price_windows/reports/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Cloud pipeline output
+.local/
+build/
+dist/
+*.joblib
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+crash.log
+# keep .terraform.lock.hcl committed

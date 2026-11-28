@@ -1,10 +1,13 @@
-import { ApiError, type ForecastResponse, type WindowsRequest, type WindowsResponse } from "@/lib/api/types";
-import { averageIntensity, findBestWindows, forecastEnd, hourStart, round1 } from "@/lib/carbon";
-import { API_BASE_URL, HOUR_MS, TOP_WINDOWS } from "@/lib/config";
+import { ApiError, type ForecastResponse, type Site, type WindowsRequest, type WindowsResponse } from "@/lib/api/types";
+import { averagePrice, findBestWindows, forecastEnd, hourStart, jobCostUsd, round2 } from "@/lib/carbon";
+import { createCarbonV1Client } from "@/lib/api/carbon-v1";
+import { API_BASE_URL, API_MODE, DEFAULT_KW, HOUR_MS, TOP_WINDOWS } from "@/lib/config";
 import { generateMockForecast } from "@/lib/mock/forecast";
+import { SAMPLE_SITES } from "@/lib/regions";
 
 /** What the UI needs from the backend. Swap implementations without touching components. */
 export interface EcoShiftApi {
+  getSites(signal?: AbortSignal): Promise<Site[]>;
   getForecast(region: string, signal?: AbortSignal): Promise<ForecastResponse>;
   getWindows(request: WindowsRequest, signal?: AbortSignal): Promise<WindowsResponse>;
 }
@@ -44,8 +47,9 @@ export function createMockClient(scenario: MockScenario = "normal"): EcoShiftApi
   }
 
   return {
+    getSites: async () => SAMPLE_SITES,
     getForecast: forecast,
-    async getWindows({ region, durationHours, deadline, top = TOP_WINDOWS }, signal) {
+    async getWindows({ region, durationHours, kw = DEFAULT_KW, deadline, top = TOP_WINDOWS }, signal) {
       const { generated_at, stale, data_source, points } = await forecast(region, signal);
       const end = forecastEnd(points);
       const requested = Date.parse(deadline);
@@ -56,13 +60,14 @@ export function createMockClient(scenario: MockScenario = "normal"): EcoShiftApi
         generated_at,
         stale,
         data_source,
-        job: { duration_hours: durationHours, deadline: effectiveDeadline.toISOString(), deadline_clamped: clamped },
+        job: { duration_hours: durationHours, kw, deadline: effectiveDeadline.toISOString(), deadline_clamped: clamped },
         baseline: {
           start: points[0].start,
           end: new Date(hourStart(points, 0) + durationHours * HOUR_MS).toISOString(),
-          avg_intensity_g_per_kwh: round1(averageIntensity(points, 0, durationHours)),
+          avg_price_usd_per_mwh: round2(averagePrice(points, 0, durationHours)),
+          cost_usd: round2(jobCostUsd(averagePrice(points, 0, durationHours), kw, durationHours)),
         },
-        windows: findBestWindows(points, durationHours, effectiveDeadline, top),
+        windows: findBestWindows(points, durationHours, effectiveDeadline, top, kw),
       };
     },
   };
@@ -87,6 +92,7 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
  */
 export function createHttpClient(baseUrl: string): EcoShiftApi {
   return {
+    getSites: async () => SAMPLE_SITES,
     async getForecast(region, signal) {
       const data = await getJson<ForecastResponse>(`${baseUrl}/forecast?${new URLSearchParams({ region })}`, signal);
       if (!Array.isArray(data.points)) throw new ApiError("Forecast response doesn't match the expected shape");
@@ -122,6 +128,9 @@ let client: EcoShiftApi | undefined;
  * read from the browser's URL.
  */
 export function getApiClient(): EcoShiftApi {
-  client ??= API_BASE_URL ? createHttpClient(API_BASE_URL) : createMockClient(scenarioFromUrl());
+  if (!client) {
+    if (API_MODE === "carbon-v1") client = createCarbonV1Client(API_BASE_URL);
+    else client = API_BASE_URL ? createHttpClient(API_BASE_URL) : createMockClient(scenarioFromUrl());
+  }
   return client;
 }

@@ -19,7 +19,7 @@ export const metadata: Metadata = {
     template: "%s · EcoShift",
   },
   description:
-    "48-hour grid carbon intensity forecasts and the lowest-emission time windows for training runs, batch jobs, and builds.",
+    "CAISO day-ahead electricity price forecasts and the cheapest time windows for training runs, batch jobs, and builds at California datacenters.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

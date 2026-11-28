@@ -16,8 +16,9 @@ export interface SiteComparisonProps {
   /** Code of the site the dashboard is showing. */
   current: string;
   durationHours: number;
-  powerMw: number;
-  carbonPrice: number;
+  /** Average power draw of the job, in kW. */
+  kw: number;
+  carbonPrice?: number;
   deadline: Date;
   onSelect: (code: string) => void;
 }
@@ -25,12 +26,12 @@ export interface SiteComparisonProps {
 function Headline({ options, current }: { options: SiteOption[]; current: string }) {
   const [top] = options;
   const here = options.find((o) => o.region.code === current);
-  if (!top?.best) return <>No data center has a window that fits this deadline.</>;
-  if (top.region.code === current) return <>{top.region.shortName} is already the best data center for this job.</>;
+  if (!top?.best) return <>No campus has a window that fits this deadline.</>;
+  if (top.region.code === current) return <>{top.region.shortName} is already the cheapest campus for this job.</>;
   const saved = here?.dollars != null && top.dollars !== null ? here.dollars - top.dollars : null;
   return (
     <>
-      <strong className="font-semibold text-ink">{top.region.shortName}</strong> is the best data center: start{" "}
+      <strong className="font-semibold text-ink">{top.region.shortName}</strong> is the cheapest campus: start{" "}
       {formatDayTime(new Date(top.best.start))}
       {saved !== null && here ? (
         <>
@@ -49,20 +50,21 @@ function versus(option: SiteOption, here: SiteOption | undefined): string {
   if (option.region.code === here?.region.code) return "Viewing";
   if (option.dollars === null || here?.dollars == null) return "—";
   const diff = here.dollars - option.dollars;
-  if (Math.round(diff) === 0) return "Same";
+  if (Math.abs(diff) < 0.005) return "Same";
   return diff > 0 ? `${formatUsd(diff)} less` : `${formatUsd(-diff)} more`;
 }
 
 /** Every site's best window for the planned job, so people can choose where as well as when. */
-export function SiteComparison({ options, error, onRetry, current, durationHours, powerMw, carbonPrice, deadline, onSelect }: SiteComparisonProps) {
+export function SiteComparison({ options, error, onRetry, current, durationHours, kw, carbonPrice = 0, deadline, onSelect }: SiteComparisonProps) {
   const here = options?.find((o) => o.region.code === current);
   const hereName = here?.region.shortName ?? current;
+  const showCarbon = options?.some((o) => o.best?.avgIntensity != null) ?? false;
 
   return (
     <Card className="min-w-0">
-      <CardTitle id="compare-sites">Compare data centers</CardTitle>
+      <CardTitle id="compare-sites">Compare campuses</CardTitle>
       <CardDescription className="mb-3">
-        Best {formatHours(durationHours)} window at each data center · {powerMw} MW · done by {formatDayTime(deadline)}
+        Best {formatHours(durationHours)} window at each campus · {kw} kW · done by {formatDayTime(deadline)}
         {carbonPrice > 0 && <> · cost includes carbon at {formatUsd(carbonPrice)}/t</>}
       </CardDescription>
 
@@ -80,7 +82,7 @@ export function SiteComparison({ options, error, onRetry, current, durationHours
               <thead className="bg-surface text-left text-xs text-muted">
                 <tr className="border-b border-border">
                   <th scope="col" className={th}>
-                    Data center
+                    Campus
                   </th>
                   <th scope="col" className={th}>
                     Best start
@@ -91,9 +93,11 @@ export function SiteComparison({ options, error, onRetry, current, durationHours
                   <th scope="col" className={`${th} ${wide} text-right`}>
                     Power $/MWh
                   </th>
-                  <th scope="col" className={`${th} ${wide} text-right`}>
-                    gCO₂/kWh
-                  </th>
+                  {showCarbon && (
+                    <th scope="col" className={`${th} ${wide} text-right`}>
+                      gCO₂/kWh
+                    </th>
+                  )}
                   <th scope="col" className={`${th} text-right`}>
                     vs {hereName}
                   </th>
@@ -124,11 +128,11 @@ export function SiteComparison({ options, error, onRetry, current, durationHours
                         </button>
                       </th>
                       {option.error ? (
-                        <td colSpan={5} className="px-3 py-2 text-muted">
+                        <td colSpan={showCarbon ? 5 : 4} className="px-3 py-2 text-muted">
                           Unavailable
                         </td>
                       ) : !option.best ? (
-                        <td colSpan={5} className="px-3 py-2 text-muted">
+                        <td colSpan={showCarbon ? 5 : 4} className="px-3 py-2 text-muted">
                           No window fits the deadline
                         </td>
                       ) : (
@@ -138,7 +142,11 @@ export function SiteComparison({ options, error, onRetry, current, durationHours
                           <td className={`px-3 py-2 text-right text-ink-2 ${wide}`}>
                             {option.best.avgPrice === null ? "—" : formatUsd(option.best.avgPrice)}
                           </td>
-                          <td className={`px-3 py-2 text-right text-ink-2 ${wide}`}>{formatIntensity(option.best.avgIntensity)}</td>
+                          {showCarbon && (
+                            <td className={`px-3 py-2 text-right text-ink-2 ${wide}`}>
+                              {option.best.avgIntensity === null ? "—" : formatIntensity(option.best.avgIntensity)}
+                            </td>
+                          )}
                           <td className={cn("px-3 py-2 text-right", viewing ? "text-muted" : "text-ink-2")}>{versus(option, here)}</td>
                         </>
                       )}
@@ -149,7 +157,7 @@ export function SiteComparison({ options, error, onRetry, current, durationHours
             </table>
           </div>
           <p className="mt-2 text-xs text-muted">
-            Wholesale power only. Utility tariffs, PUE, and moving data between sites aren&apos;t included.
+            Wholesale day-ahead prices only, for a selection of campuses. Utility tariffs, PUE, and moving data between sites aren&apos;t included.
           </p>
         </>
       )}

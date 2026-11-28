@@ -1,24 +1,27 @@
-// Response shapes the UI expects from the EcoShift API. They mirror the `carbon windows --json`
-// output in docs/superpowers/specs/2026-10-21-carbon-cli-design.md, so the dashboard and the CLI
-// share one contract. Field names are snake_case to match the JSON on the wire.
+// Response shapes the UI expects. The deployed API's shapes (src/carbon/api/schemas.py) are mapped
+// to these in lib/api/carbon-v1.ts. Field names are snake_case to match JSON on the wire.
+// Prices are CAISO day-ahead LMPs in $/MWh and can be negative.
 
 /** `data_source` value for generated sample data. Anything labeled this is not a real forecast. */
 export const SYNTHETIC_SOURCE = "synthetic";
 
-/** Forecast carbon intensity for one hour, covering [start, start + 1h). */
+/** Whether an hour's price is already published by CAISO or is the model's estimate. */
+export type PriceKind = "published" | "forecast";
+
+/** Price for one hour, covering [start, start + 1h). */
 export interface ForecastPoint {
   /** ISO 8601 timestamp at the start of the hour. */
   start: string;
-  /** Average grid carbon intensity over the hour, in gCO₂/kWh. */
-  intensity: number;
-  /**
-   * Wholesale electricity price for the hour at the site's pricing zone, in USD/MWh. Can be
-   * negative. Only sites have one; a whole balancing authority (e.g. CISO) doesn't.
-   */
-  price?: number;
+  /** Day-ahead price over the hour, in $/MWh. */
+  price: number;
+  /** Absent for sample data and older API versions. */
+  kind?: PriceKind;
+  /** Grid carbon intensity over the hour, in gCO₂/kWh. Only when the API provides it. */
+  intensity?: number;
 }
 
 export interface ForecastResponse {
+  /** Site (datacenter campus) id. */
   region: string;
   /** When the batch pipeline produced this forecast. */
   generated_at: string;
@@ -30,10 +33,19 @@ export interface ForecastResponse {
   points: ForecastPoint[];
 }
 
+/** A datacenter campus the forecast is for. */
+export interface Site {
+  id: string;
+  name: string;
+  city?: string;
+}
+
 export interface WindowsRequest {
   region: string;
   /** Whole hours the job needs to run. */
   durationHours: number;
+  /** Average power draw of the job, in kW. Sets the dollar figures. */
+  kw?: number;
   /** ISO 8601 timestamp the job must finish by. */
   deadline: string;
   top?: number;
@@ -43,18 +55,23 @@ export interface WindowsRequest {
 export interface Baseline {
   start: string;
   end: string;
-  avg_intensity_g_per_kwh: number;
+  avg_price_usd_per_mwh: number;
+  cost_usd: number;
 }
 
 /** A candidate start time for the job. */
-export interface CarbonWindow {
-  /** 1 is the cleanest. */
+export interface PriceWindow {
+  /** 1 is the cheapest. */
   rank: number;
   start: string;
   end: string;
-  avg_intensity_g_per_kwh: number;
-  /** % less CO₂ than the baseline. Negative means worse than running now. */
-  co2_saved_pct: number;
+  avg_price_usd_per_mwh: number;
+  /** Electricity cost of the job in this window. Negative means being paid to use power. */
+  cost_usd: number;
+  /** Dollars saved versus the baseline. Negative means worse than running now. */
+  saved_usd: number;
+  /** $/MWh below the baseline's average; what the verdict is judged on. */
+  saved_usd_per_mwh: number;
 }
 
 export interface WindowsResponse {
@@ -64,13 +81,14 @@ export interface WindowsResponse {
   data_source: string;
   job: {
     duration_hours: number;
+    kw: number;
     deadline: string;
     /** True when the requested deadline was past the forecast and got pulled in to its end. */
     deadline_clamped: boolean;
   };
   baseline: Baseline;
   /** Best first; empty when no window fits before the deadline. */
-  windows: CarbonWindow[];
+  windows: PriceWindow[];
 }
 
 /** Error thrown by API clients, carrying the HTTP status when there is one. */

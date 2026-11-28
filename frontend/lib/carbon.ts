@@ -1,38 +1,45 @@
-// Window-finding logic. Matches the CLI's src/windows.py so the dashboard and `carbon windows`
-// rank the same forecast the same way.
+// Window-finding logic. Matches the CLI's src/windows.py so the dashboard and `carbon-windows`
+// rank the same forecast the same way. Prices are $/MWh and may be negative.
 
-import type { CarbonWindow, ForecastPoint } from "@/lib/api/types";
-import { HOUR_MS, SMALL_GAIN_THRESHOLD_PCT, WAIT_THRESHOLD_PCT } from "@/lib/config";
+import type { ForecastPoint, PriceWindow } from "@/lib/api/types";
+import { DEFAULT_KW, HOUR_MS, SMALL_GAIN_USD_PER_MWH, WAIT_THRESHOLD_USD_PER_MWH } from "@/lib/config";
 
-/** Round to one decimal place, the precision the API and CLI report. */
-export function round1(value: number): number {
-  return Math.round(value * 10) / 10;
+/** Round to two decimal places, the precision the API reports. */
+export function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/** Electricity cost of running `kw` for `hours` at `pricePerMwh`: price x kWh / 1000. */
+export function jobCostUsd(pricePerMwh: number, kw: number, hours: number): number {
+  return (pricePerMwh * kw * hours) / 1000;
 }
 
 /**
- * Average intensity of a job that starts at `startIndex` and runs `hours` hours.
+ * Average price of a job that starts at `startIndex` and runs `hours` hours.
  *
  * @param points Hourly forecast, consecutive.
  * @param startIndex Index of the first hour the job runs.
  * @param hours Whole hours the job runs; the span must fit inside `points`.
- * @returns Mean gCO₂/kWh over the job's hours.
+ * @returns Mean $/MWh over the job's hours.
  */
-export function averageIntensity(points: ForecastPoint[], startIndex: number, hours: number): number {
+export function averagePrice(points: ForecastPoint[], startIndex: number, hours: number): number {
   if (hours < 1 || startIndex < 0 || startIndex + hours > points.length) {
     throw new RangeError(`Job of ${hours}h at hour ${startIndex} does not fit a ${points.length}h forecast`);
   }
   let total = 0;
-  for (let i = startIndex; i < startIndex + hours; i++) total += points[i].intensity;
+  for (let i = startIndex; i < startIndex + hours; i++) total += points[i].price;
   return total / hours;
 }
 
-/**
- * Percent less CO₂ a job emits at `intensity` compared with `baseline`. Negative means more.
- * Intensity is per kWh, so for the same job the CO₂ ratio equals the intensity ratio.
- */
-export function savedPct(baseline: number, intensity: number): number {
+/** $/MWh cheaper than `baseline` the job's average `price` is. Negative means dearer. */
+export function savedPerMwh(baseline: number, price: number): number {
+  return baseline - price;
+}
+
+/** Percent less than `baseline` that `value` is. Negative means more. */
+export function savedPct(baseline: number, value: number): number {
   if (baseline <= 0) return 0;
-  return ((baseline - intensity) / baseline) * 100;
+  return ((baseline - value) / baseline) * 100;
 }
 
 /** Time the hour at `index` starts, in ms since epoch. */
@@ -86,7 +93,7 @@ export function pickWindows(scores: number[], hours: number, lastStart: number, 
 }
 
 /**
- * Rank the lowest-emission, non-overlapping start times for a job.
+ * Rank the cheapest, non-overlapping start times for a job.
  *
  * Every whole-hour start that ends by the deadline is a candidate. Candidates are taken
  * cheapest first, skipping any that overlap one already chosen, so the results are
@@ -99,13 +106,13 @@ export function pickWindows(scores: number[], hours: number, lastStart: number, 
  * @param top Maximum number of windows to return.
  * @returns Windows best first, rounded to one decimal; empty if none fit.
  */
-export function findBestWindows(points: ForecastPoint[], hours: number, deadline: Date, top: number): CarbonWindow[] {
+export function findBestWindows(points: ForecastPoint[], hours: number, deadline: Date, top: number, kw: number = DEFAULT_KW): PriceWindow[] {
   const lastStart = lastStartIndex(points, hours, deadline);
   if (lastStart < 0) return [];
 
-  const baselineAvg = averageIntensity(points, 0, hours);
+  const baselineAvg = averagePrice(points, 0, hours);
   const chosen = pickWindows(
-    points.map((p) => p.intensity),
+    points.map((p) => p.price),
     hours,
     lastStart,
     top,
@@ -115,8 +122,10 @@ export function findBestWindows(points: ForecastPoint[], hours: number, deadline
     rank: i + 1,
     start: points[start].start,
     end: new Date(hourStart(points, start) + hours * HOUR_MS).toISOString(),
-    avg_intensity_g_per_kwh: round1(avg),
-    co2_saved_pct: round1(savedPct(baselineAvg, avg)),
+    avg_price_usd_per_mwh: round2(avg),
+    cost_usd: round2(jobCostUsd(avg, kw, hours)),
+    saved_usd: round2(jobCostUsd(baselineAvg - avg, kw, hours)),
+    saved_usd_per_mwh: round2(savedPerMwh(baselineAvg, avg)),
   }));
 }
 
@@ -128,9 +137,9 @@ export function indexOfTime(points: ForecastPoint[], time: string): number {
 
 export type Verdict = "wait" | "small-gain" | "run-now";
 
-/** The one-line recommendation for the "Right now" card, from the best window's savings. */
-export function verdictFor(bestSavedPct: number): Verdict {
-  if (bestSavedPct >= WAIT_THRESHOLD_PCT) return "wait";
-  if (bestSavedPct >= SMALL_GAIN_THRESHOLD_PCT) return "small-gain";
+/** The one-line recommendation for the "Right now" card, from how many $/MWh the best window saves. */
+export function verdictFor(bestSavedUsdPerMwh: number): Verdict {
+  if (bestSavedUsdPerMwh >= WAIT_THRESHOLD_USD_PER_MWH) return "wait";
+  if (bestSavedUsdPerMwh >= SMALL_GAIN_USD_PER_MWH) return "small-gain";
   return "run-now";
 }

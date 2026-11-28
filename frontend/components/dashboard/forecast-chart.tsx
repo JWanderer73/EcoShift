@@ -1,11 +1,11 @@
 "use client";
 
 import { useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
-import type { ForecastPoint } from "@/lib/api/types";
-import { hourStart } from "@/lib/carbon";
-import { clamp, yTicks } from "@/lib/chart";
+import type { ForecastPoint, PriceWindow } from "@/lib/api/types";
+import { averagePrice, hourStart, indexOfTime } from "@/lib/carbon";
+import { clamp, yTicksRange } from "@/lib/chart";
 import { HOUR_MS } from "@/lib/config";
-import { formatClock, formatDayTime, formatHours, formatRange, formatWeekday } from "@/lib/format";
+import { formatClock, formatDayTime, formatHours, formatPrice, formatPriceShort, formatRange, formatWeekday } from "@/lib/format";
 import { useElementWidth } from "@/lib/hooks/use-element-width";
 
 const MARGIN_TOP = 26;
@@ -28,28 +28,13 @@ const SHORT_JOB_LABEL_PX = 26;
 const PAGE_STEP_HOURS = 6;
 /** Headroom above the highest point so the line never touches the top edge. */
 const Y_HEADROOM = 1.05;
-const TOOLTIP_WIDTH = 196;
+const TOOLTIP_WIDTH = 168;
 /** Hours of room the "avg 123" label needs to the right of the job before it flips to the left. */
 const AVG_LABEL_HOURS = 4;
 
-/** The hourly series the chart plots, with how to label it. */
-export interface ChartSeries {
-  /** One value per forecast hour. */
-  values: number[];
-  /** Unit shown after values, e.g. "$/MWh". */
-  unit: string;
-  /** Spoken name for screen readers, e.g. "cost". */
-  name: string;
-  format: (value: number) => string;
-  /** Extra tooltip line for an hour, e.g. the other metrics. */
-  detail?: (hour: number) => string;
-}
-
 export interface ForecastChartProps {
   points: ForecastPoint[];
-  series: ChartSeries;
-  /** Ranked windows by first-hour index. */
-  windows: { rank: number; startIndex: number }[];
+  windows: PriceWindow[];
   durationHours: number;
   /** Hour index the job starts at, or null when no start fits before the deadline. */
   jobStart: number | null;
@@ -65,12 +50,11 @@ export interface ForecastChartProps {
 }
 
 /**
- * 48-hour forecast line with the best windows shaded and the user's job as a block
+ * Hourly price line ($/MWh, can go below zero) with the best windows shaded and the user's job as a block
  * they can drag (or move with arrow keys) to compare start times.
  */
 export function ForecastChart({
   points,
-  series,
   windows,
   durationHours,
   jobStart,
@@ -92,15 +76,19 @@ export function ForecastChart({
   const plotWidth = Math.max(0, width - MARGIN_LEFT - MARGIN_RIGHT);
   const plotBottom = MARGIN_TOP + PLOT_HEIGHT;
   const trackTop = plotBottom + TRACK_GAP;
-  const { values } = series;
-  const ticks = yTicks(Math.max(...values) * Y_HEADROOM, Y_TICK_COUNT, Math.min(...values) * Y_HEADROOM);
+  const lowest = Math.min(...points.map((p) => p.price));
+  const ticks = yTicksRange(lowest < 0 ? lowest * Y_HEADROOM : 0, Math.max(...points.map((p) => p.price)) * Y_HEADROOM, Y_TICK_COUNT);
   const yMin = ticks[0];
   const yMax = ticks[ticks.length - 1];
+  /** First hour whose price is the model's estimate rather than a published one; -1 when there is no such split. */
+  const firstForecast = points.findIndex((p) => p.kind === "forecast");
 
   const x = (hour: number) => MARGIN_LEFT + (hour / hours) * plotWidth;
-  const y = (value: number) => plotBottom - ((value - yMin) / (yMax - yMin)) * PLOT_HEIGHT;
+  const y = (price: number) => plotBottom - ((price - yMin) / (yMax - yMin)) * PLOT_HEIGHT;
 
-  const spans = windows.map((w) => ({ rank: w.rank, start: w.startIndex })).filter((s) => s.start >= 0);
+  const spans = windows
+    .map((w) => ({ rank: w.rank, start: indexOfTime(points, w.start) }))
+    .filter((s) => s.start >= 0);
   const rankAt = (hour: number) => spans.find((s) => hour >= s.start && hour < s.start + durationHours)?.rank ?? null;
 
   function pointerHour(event: { clientX: number }): number {
@@ -175,16 +163,17 @@ export function ForecastChart({
     moveJob(moves[event.key]);
   }
 
-  const linePath = values.map((v, i) => `${i ? "L" : "M"}${x(i + 0.5)},${y(v)}`).join("");
-  // Fill down to zero, so hours below zero (negative prices) read as their own band.
+  const linePath = points.map((p, i) => `${i ? "L" : "M"}${x(i + 0.5)},${y(p.price)}`).join("");
   const areaPath = `${linePath}L${x(hours - 0.5)},${y(0)}L${x(0.5)},${y(0)}Z`;
-  const xTickEvery = plotWidth < NARROW_PLOT_PX ? 12 : 6;
+  const narrow = plotWidth < NARROW_PLOT_PX;
+  /** Five days would crowd the axis at 6-hour labels, so longer forecasts label every 12 or 24 hours. */
+  const xTickEvery = hours > 72 ? (narrow ? 24 : 12) : narrow ? 12 : 6;
   const xTicks = Array.from({ length: hours + 1 }, (_, i) => i).filter((i) => {
     const time = i < hours ? hourStart(points, i) : hourStart(points, hours - 1) + HOUR_MS;
     return new Date(time).getHours() % xTickEvery === 0;
   });
 
-  const jobAvg = jobStart === null ? null : values.slice(jobStart, jobStart + durationHours).reduce((a, b) => a + b, 0) / durationHours;
+  const jobAvg = jobStart === null ? null : averagePrice(points, jobStart, durationHours);
   const jobWidth = jobStart === null ? 0 : x(jobStart + durationHours) - x(jobStart);
   const jobRange =
     jobStart === null
@@ -204,7 +193,7 @@ export function ForecastChart({
           height={CHART_HEIGHT}
           className={dragOffset !== null ? "cursor-grabbing" : undefined}
           role="group"
-          aria-label={`Hourly ${series.name} forecast with the best windows and your job`}
+          aria-label="Electricity price forecast with the cheapest windows and your job"
         >
           {/* Gridlines and y-axis */}
           {ticks.map((t) => (
@@ -218,7 +207,7 @@ export function ForecastChart({
                 strokeWidth={1}
               />
               <text x={MARGIN_LEFT - 8} y={y(t)} textAnchor="end" dominantBaseline="middle" className="fill-muted text-[11px] tabular-nums">
-                {series.format(t)}
+                {formatPriceShort(t)}
               </text>
             </g>
           ))}
@@ -241,6 +230,19 @@ export function ForecastChart({
                 className="fill-muted text-[11px]"
               >
                 Deadline
+              </text>
+            </g>
+          )}
+
+          {/* Where published day-ahead prices end and the model's forecast begins */}
+          {firstForecast > 0 && (
+            <g>
+              <line x1={x(firstForecast)} x2={x(firstForecast)} y1={MARGIN_TOP} y2={plotBottom} stroke="var(--axis)" strokeDasharray="4 3" />
+              <text x={x(firstForecast) - 4} y={MARGIN_TOP - 8} textAnchor="end" className="fill-muted text-[11px]">
+                Published
+              </text>
+              <text x={x(firstForecast) + 4} y={MARGIN_TOP - 8} textAnchor="start" className="fill-muted text-[11px]">
+                Forecast
               </text>
             </g>
           )}
@@ -309,7 +311,7 @@ export function ForecastChart({
               strokeWidth={3}
               paintOrder="stroke"
             >
-              avg {series.format(jobAvg)}
+              avg {formatPrice(jobAvg)}
             </text>
           )}
 
@@ -329,7 +331,7 @@ export function ForecastChart({
               <line x1={x(hover + 0.5)} x2={x(hover + 0.5)} y1={MARGIN_TOP} y2={plotBottom} stroke="var(--ink-2)" />
               <circle
                 cx={x(hover + 0.5)}
-                cy={y(values[hover])}
+                cy={y(hoverPoint.price)}
                 r={4}
                 fill="var(--forecast)"
                 stroke="var(--surface)"
@@ -376,7 +378,7 @@ export function ForecastChart({
               aria-valuemin={0}
               aria-valuemax={lastStart}
               aria-valuenow={jobStart}
-              aria-valuetext={`${jobRange}, average ${series.name} ${series.format(jobAvg ?? 0)} ${series.unit}`}
+              aria-valuetext={`${jobRange}, average ${formatPrice(jobAvg ?? 0)} per megawatt-hour`}
               className="outline-none"
               onKeyDown={onJobKey}
               onFocus={() => setJobFocused(true)}
@@ -459,11 +461,10 @@ export function ForecastChart({
           role="status"
         >
           <div className="text-sm">
-            <span className="font-semibold text-ink tabular-nums">{series.format(values[hover])}</span>{" "}
-            <span className="text-xs text-muted">{series.unit}</span>
+            <span className="font-semibold text-ink tabular-nums">{formatPrice(hoverPoint.price)}</span>{" "}
+            <span className="text-xs text-muted">/MWh{hoverPoint.kind ? ` · ${hoverPoint.kind}` : ""}</span>
           </div>
           <div className="text-xs text-ink-2">{formatDayTime(new Date(hoverPoint.start))}</div>
-          {series.detail && <div className="text-xs text-muted tabular-nums">{series.detail(hover)}</div>}
           {hoverRank !== null && (
             <div className="mt-1 flex items-center gap-1.5 text-xs text-ink-2">
               <span className="inline-block h-2.5 w-2.5 rounded-sm bg-window" aria-hidden />

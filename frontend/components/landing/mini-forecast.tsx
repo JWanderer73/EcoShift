@@ -13,10 +13,12 @@ const PAD_Y = 6;
  */
 export function MiniForecast({ points, bestStart, durationHours }: { points: ForecastPoint[]; bestStart?: string; durationHours: number }) {
   const [ref, width] = useElementWidth<HTMLDivElement>();
-  const max = Math.max(...points.map((p) => p.intensity));
+  const max = Math.max(...points.map((p) => p.price));
+  // Prices can be negative, so scale between the lowest and highest rather than from zero.
+  const min = Math.min(...points.map((p) => p.price));
   const x = (hour: number) => (hour / points.length) * width;
-  const y = (value: number) => HEIGHT - PAD_Y - (value / max) * (HEIGHT - PAD_Y * 2);
-  const line = points.map((p, i) => `${i ? "L" : "M"}${x(i + 0.5)},${y(p.intensity)}`).join("");
+  const y = (value: number) => HEIGHT - PAD_Y - (max > min ? (value - min) / (max - min) : 0.5) * (HEIGHT - PAD_Y * 2);
+  const line = points.map((p, i) => `${i ? "L" : "M"}${x(i + 0.5)},${y(p.price)}`).join("");
   const band = bestStart ? indexOfTime(points, bestStart) : -1;
 
   return (
@@ -28,7 +30,7 @@ export function MiniForecast({ points, bestStart, durationHours }: { points: For
           )}
           <path d={`${line}L${x(points.length - 0.5)},${HEIGHT}L${x(0.5)},${HEIGHT}Z`} fill="var(--forecast)" fillOpacity={0.1} />
           <path d={line} fill="none" stroke="var(--forecast)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-          <circle cx={x(0.5)} cy={y(points[0].intensity)} r={4} fill="var(--forecast)" stroke="var(--surface)" strokeWidth={2} />
+          <circle cx={x(0.5)} cy={y(points[0].price)} r={4} fill="var(--forecast)" stroke="var(--surface)" strokeWidth={2} />
         </svg>
       )}
     </div>

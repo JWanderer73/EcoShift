@@ -6,13 +6,13 @@ import { expect, test } from "@playwright/test";
 test.describe("landing page", () => {
   test("leads with the live forecast and links to the dashboard", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Run heavy compute when power is cheapest and cleanest.");
-    await expect(page.getByTestId("hero-headline")).toContainText(/cleaner|cleanest/);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Run heavy jobs when power is cheapest.");
+    await expect(page.getByTestId("hero-headline")).toContainText(/cheapest/);
     await expect(page.getByText("Sample data").first()).toBeVisible();
     // The CLI demo prints the same forecast as the hero card.
     const best = (await page.getByTestId("hero-headline").textContent()) ?? "";
-    const pct = best.match(/(\d+)% cleaner/)?.[1];
-    if (pct) await expect(page.getByTestId("cli-output")).toContainText(`${pct}% less CO₂ than running now`);
+    const saved = best.match(/(\$[\d.,]+)\s*less than starting now/)?.[1];
+    if (saved) await expect(page.getByTestId("cli-output")).toContainText(`saves ${saved} vs running now`);
     await page.getByRole("link", { name: "Open the dashboard" }).click();
     await expect(page).toHaveURL(/\/dashboard$/);
   });
@@ -21,7 +21,7 @@ test.describe("landing page", () => {
 test.describe("dashboard", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/dashboard");
-    await expect(page.getByTestId("now-value")).toBeVisible();
+    await expect(page.getByTestId("now-price")).toBeVisible();
   });
 
   test("shows the verdict, the chart, and the top 3 windows", async ({ page }) => {
@@ -37,7 +37,7 @@ test.describe("dashboard", () => {
   test("changing the job length re-ranks windows and updates the CLI command", async ({ page }) => {
     await page.getByRole("button", { name: "2h", exact: true }).click();
     await expect(page.getByTestId("job-readout")).toContainText("Your 2h job");
-    await expect(page.getByText("carbon windows --duration 2h --region CISO")).toBeVisible();
+    await expect(page.getByText("carbon-windows best --duration 2 --location fresno-305-west-napa-avenue")).toBeVisible();
   });
 
   test("the job block moves with the keyboard and reports the change", async ({ page }) => {
@@ -58,44 +58,29 @@ test.describe("dashboard", () => {
 
   test("the table view lists every hour", async ({ page }) => {
     await page.getByRole("button", { name: "Table" }).click();
-    await expect(page.getByRole("table", { name: /^Hourly/ }).locator("tbody tr")).toHaveCount(48);
+    const forecast = page.getByRole("table", { name: "Hourly day-ahead price forecast and cheapest windows" });
+    await expect(forecast.locator("tbody tr")).toHaveCount(72);
   });
 
-  test("switching location reloads the forecast", async ({ page }) => {
-    await page.getByLabel("Location").selectOption("databank-san2");
-    await expect(page.getByText("Right now at DataBank SAN2")).toBeVisible();
-    await expect(page.getByText("carbon windows --duration 4h --region CISO")).toBeVisible();
+  test("switching campus reloads the forecast", async ({ page }) => {
+    await page.getByLabel("Datacenter campus").selectOption("san-jose-sample-campus");
+    await expect(page.getByText("Right now in San Jose")).toBeVisible();
+    await expect(page.getByText("carbon-windows best --duration 4 --location san-jose-sample-campus")).toBeVisible();
   });
 
-  test("a site outside CAISO hides the CLI command", async ({ page }) => {
-    await page.getByLabel("Location").selectOption("coresite-la1");
-    await expect(page.getByText(/Right now at CoreSite LA1/)).toBeVisible();
-    await expect(page.getByText(/carbon windows --duration/)).toHaveCount(0);
-  });
-
-  test("the carbon price re-ranks windows and shows dollar savings", async ({ page }) => {
-    await expect(page.getByTestId("now-value")).toHaveText(/^-?\$/);
-    await page.getByRole("button", { name: "Price only" }).click();
-    await expect(page.getByRole("button", { name: "Price only" })).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByText("Wholesale power price", { exact: false })).toHaveCount(0);
-    await expect(page.getByText(/Cost with carbon at \$0\/t/).first()).toBeVisible();
-  });
-
-  test("compare data centers ranks every site and switches to the one picked", async ({ page }) => {
-    const table = page.getByRole("table", { name: "Compare data centers" });
-    await expect(table.locator("tbody tr")).toHaveCount(7);
-    await expect(page.getByTestId("compare-headline")).toContainText(/best data center/);
-    await table.getByRole("button", { name: /NTT CA1/ }).click();
-    await expect(page.getByText("Right now at NTT Sacramento CA1")).toBeVisible();
-    await expect(table.getByRole("button", { name: /NTT CA1/ })).toHaveAttribute("aria-current", "true");
+  test("the power draw changes the dollar figures and the CLI command", async ({ page }) => {
+    const before = await page.getByTestId("job-readout").textContent();
+    await page.getByLabel("Average power draw in kilowatts").fill("80");
+    await expect(page.getByTestId("job-readout")).not.toHaveText(before ?? "");
+    await expect(page.getByText(/carbon-windows best --duration 4 --kw 80 --location /)).toBeVisible();
   });
 
   test("a deadline preset re-ranks windows and adds the deadline to the CLI command", async ({ page }) => {
     await page.getByRole("button", { name: "Tomorrow 9 AM" }).click();
     await expect(page.getByRole("button", { name: "Tomorrow 9 AM" })).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByText(/carbon windows --duration 4h --deadline \S+T09:00-0[78]:00 --region CISO/)).toBeVisible();
+    await expect(page.getByText(/carbon-windows best --duration 4 --deadline \S+T09:00-0[78]:00 --location fresno-305-west-napa-avenue/)).toBeVisible();
     await page.getByRole("button", { name: "Any time" }).click();
-    await expect(page.getByText("carbon windows --duration 4h --region CISO")).toBeVisible();
+    await expect(page.getByText("carbon-windows best --duration 4 --location fresno-305-west-napa-avenue")).toBeVisible();
   });
 
   test("the now card shows what the savings compare against", async ({ page }) => {
@@ -136,7 +121,7 @@ test.describe("dashboard states", () => {
 
 for (const [path, readyTestId] of [
   ["/", "hero-headline"],
-  ["/dashboard", "now-value"],
+  ["/dashboard", "now-price"],
 ]) {
   test(`${path} never scrolls sideways`, async ({ page }) => {
     await page.goto(path);

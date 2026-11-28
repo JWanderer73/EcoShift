@@ -1,6 +1,6 @@
 # EcoShift frontend
 
-The landing page and dashboard for EcoShift: a 48-hour carbon intensity forecast, the best time windows for a job, and a planner that shows how much CO₂ waiting saves.
+The landing page and dashboard for EcoShift: CAISO day-ahead electricity prices for California datacenter campuses (published hours, then a three-day model forecast), the cheapest time windows for a job, and a planner that shows what waiting saves in dollars.
 
 Next.js (App Router), React, TypeScript, Tailwind CSS. Hosted on Vercel.
 
@@ -80,30 +80,18 @@ tests/
 
 ## API contract
 
-The dashboard calls two `GET` endpoints. Field names match `carbon windows --json` from the [CLI design spec](../docs/superpowers/specs/2026-10-21-carbon-cli-design.md), so the CLI and dashboard share one contract. The types live in `lib/api/types.ts`.
+The UI is written against the shapes in `lib/api/types.ts` (prices in $/MWh, which can be negative; costs
+in dollars). With the deployed API, `lib/api/carbon-v1.ts` maps its `/v1/sites`, `/v1/forecast` and
+`/v1/windows` responses onto them, so that file is the only place that knows the wire format. The sample
+client (`lib/mock/`) builds the same shapes, labelled `data_source: "synthetic"`.
 
-**`GET /forecast?region=CISO`** returns the hourly series the chart draws:
+Notes:
 
-```json
-{
-  "region": "CISO",
-  "generated_at": "2026-10-22T00:06:00Z",
-  "stale": false,
-  "data_source": "synthetic",
-  "points": [{ "start": "2026-10-22T01:00:00Z", "intensity": 287 }]
-}
-```
-
-`points` holds 48 consecutive hourly values in gCO₂/kWh, starting at the current hour.
-
-**`GET /windows?region=CISO&duration_hours=4&deadline=2026-10-23T18:00:00Z&top=3`** returns the same JSON as `carbon windows --json`: `region`, `generated_at`, `stale`, `data_source`, `job`, `baseline`, and ranked `windows`.
-
-Notes for the API team:
-
-- `/forecast` gives every hour, not just the top windows. The dashboard's chart and draggable job block need it, and so does the chart in the CLI's table output (`--json` doesn't call it).
-- When no window fits before the deadline, the dashboard accepts either an empty `windows` list or an error response. The Python stand-in raises an error.
-- The browser calls the API directly, so it needs CORS headers allowing the dashboard's Vercel domain.
-- The region list (`lib/regions.ts`) matches the CLI: CISO, ERCO, PJM.
+- `/v1/forecast` gives every hour, each marked `published` (CAISO has already published that day-ahead price) or `forecast` (the model's estimate). The chart draws the boundary and the table shows the column.
+- Job cost is price x kWh / 1000, so the planner has a power-draw field (kW, default 8).
+- The campus list comes from `/v1/sites`; the first one it returns is used until someone picks another.
+- When no window fits before the deadline, the dashboard accepts either an empty `windows` list or an error response.
+- The original `createHttpClient` (a `/forecast?region=` contract) is left in `lib/api/client.ts` from the first prototype and is not used by the deployed app; it still returns sample sites.
 
 ## Conventions
 
@@ -112,3 +100,13 @@ Notes for the API team:
 - **No clock reads during render.** Cache Components is on, so `Date.now()` or `new Date()` during prerender breaks the build. Use `useMinuteClock()` or do the work in an effect.
 - **Sample data is always labeled**, driven by the API's `data_source` field, so a demo never passes made-up numbers off as real.
 - Logic that produces numbers people rely on (`lib/carbon.ts`, `lib/format.ts`, `lib/cli.ts`) gets unit tests.
+
+## Running against the deployed (ECS) API
+
+`NEXT_PUBLIC_ECOSHIFT_API_MODE=carbon-v1` switches the UI to this repo's `/v1/*` endpoints through
+`lib/api/carbon-v1.ts`. The browser calls `/v1/*` on its own origin: on AWS the load balancer routes that
+path to the API, and locally `API_PROXY_URL=http://localhost:8000` makes the dev server forward it
+(`make web` from the repo root does both). No CORS is needed.
+
+- `data_source` comes from the API: `caiso-day-ahead` for real prices, `synthetic` for the stub models. The
+  "Sample data" label shows only for `synthetic`.

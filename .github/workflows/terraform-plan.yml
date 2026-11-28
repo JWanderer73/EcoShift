@@ -1,0 +1,28 @@
+name: terraform-plan
+
+# Runs a live base-stack plan from main. Pull requests validate Terraform in CI.
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  plan:
+    if: ${{ github.ref == 'refs/heads/main' && vars.AWS_ROLE_ARN != '' }}
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-arn: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+      - name: Plan base
+        run: ./scripts/tf.sh base plan -lock=false -no-color | tee -a "$GITHUB_STEP_SUMMARY"

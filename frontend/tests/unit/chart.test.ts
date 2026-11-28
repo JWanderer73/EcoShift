@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clamp, yTicks } from "@/lib/chart";
+import { clamp, yTicks, yTicksRange } from "@/lib/chart";
 
 describe("yTicks", () => {
   it("covers the maximum with clean steps", () => {
@@ -13,10 +13,25 @@ describe("yTicks", () => {
   it("handles an all-zero series", () => {
     expect(yTicks(0, 4)).toEqual([0, 1]);
   });
+});
 
-  it("extends below zero for negative values, keeping 0 as a tick", () => {
-    expect(yTicks(100, 4, -20)).toEqual([-50, 0, 50, 100]);
-    expect(yTicks(-5, 4, -40)).toEqual([-40, -30, -20, -10, 0, 10]);
+describe("yTicksRange", () => {
+  it("matches yTicks when nothing is negative", () => {
+    expect(yTicksRange(0, 340, 4)).toEqual(yTicks(340, 4));
+  });
+
+  it("extends below zero and keeps zero as a tick", () => {
+    const ticks = yTicksRange(-22, 60, 4);
+    expect(ticks[0]).toBeLessThanOrEqual(-22);
+    expect(ticks.at(-1)).toBeGreaterThanOrEqual(60);
+    expect(ticks).toContain(0);
+  });
+
+  it("is ascending with even steps", () => {
+    const ticks = yTicksRange(-30, 45, 4);
+    const steps = ticks.slice(1).map((t, i) => t - ticks[i]);
+    expect(new Set(steps).size).toBe(1);
+    expect(steps[0]).toBeGreaterThan(0);
   });
 });
 
@@ -26,5 +41,4 @@ describe("clamp", () => {
     expect(clamp(12, 0, 10)).toBe(10);
     expect(clamp(4, 0, 10)).toBe(4);
   });
-
 });

@@ -6,28 +6,27 @@ import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
-import { FORECAST_HORIZON_HOURS } from "@/lib/config";
 
 const STEPS: { icon: LucideIcon; title: string; body: string }[] = [
   {
     icon: Database,
     title: "Ingest",
-    body: "Hourly prices for each California pricing zone, grid mix from EIA-930, and weather from Open-Meteo, checked for gaps and impossible values before they're joined.",
+    body: "CAISO day-ahead prices for the nodes around each datacenter campus, plus weather from Open-Meteo, checked for gaps, duplicates, and impossible values before they're joined.",
   },
   {
     icon: BrainCircuit,
     title: "Forecast",
-    body: `Models predict price and carbon intensity ${FORECAST_HORIZON_HOURS} hours ahead for each site. A new model only ships if its backtest error holds up against the current one.`,
+    body: "Tomorrow's prices are already published, so those are served as they are. A model predicts the three days after that. A new model only ships if its error holds up against the current one.",
   },
   {
     icon: Server,
     title: "Serve",
-    body: "A serverless API returns the cheapest windows with carbon priced in. If the pipeline breaks, it keeps serving the last good forecast and says so.",
+    body: "An API returns the cheapest windows and what the job would cost. If the pipeline breaks, it keeps serving the last good forecast and says so.",
   },
   {
     icon: Bot,
     title: "Use",
-    body: "This dashboard for people, the carbon CLI for terminals, and an agent skill that has coding agents check before long jobs.",
+    body: "This dashboard for people, the CLI for terminals, and an agent skill that has coding agents check before long jobs.",
   },
 ];
 
@@ -46,14 +45,13 @@ export default function Home() {
           <div className="bg-graph-paper mask-fade-hero pointer-events-none absolute inset-0" aria-hidden />
           <section className="relative mx-auto grid max-w-6xl gap-10 px-4 pt-12 pb-16 sm:pt-20 lg:grid-cols-[1.1fr_1fr] lg:items-center lg:pb-24">
             <div>
-              <p className="text-sm font-medium text-primary">Cost- and carbon-aware scheduling for California data centers</p>
+              <p className="text-sm font-medium text-primary">Price-aware scheduling for heavy compute</p>
               <h1 className="mt-3 text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
-                Run heavy compute when power is cheapest and cleanest.
+                Run heavy jobs when power is cheapest.
               </h1>
               <p className="mt-4 max-w-xl text-lg text-pretty text-ink-2">
-                Power prices and grid emissions swing hour to hour and site to site. EcoShift forecasts both{" "}
-                {FORECAST_HORIZON_HOURS} hours ahead and finds the cheapest window for training runs and batch jobs, with carbon
-                priced in.
+                The same job costs more or less depending on when it runs. EcoShift forecasts CAISO day-ahead electricity prices for
+                California datacenter campuses and finds the cheapest window for training runs, batch jobs, and builds.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <Link href="/dashboard" className={buttonVariants({ variant: "primary", size: "lg" })}>
@@ -105,8 +103,8 @@ export default function Home() {
               <Badge>In development</Badge>
               <h2 className="mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">Built for terminals and coding agents</h2>
               <p className="mt-3 text-ink-2">
-                <code className="font-mono text-ink">carbon windows</code> answers the same question as the dashboard. Agents run
-                it with <code className="font-mono text-ink">--json</code> before starting a long job and report how much CO₂ waiting
+                <code className="font-mono text-ink">carbon-windows best</code> answers the same question as the dashboard. Agents run
+                it with <code className="font-mono text-ink">--json</code> before starting a long job and report how many dollars waiting
                 saves.
               </p>
               <ul className="mt-6 space-y-3 text-sm text-ink-2">

@@ -8,7 +8,10 @@ import {
   formatCliTime,
   formatClock,
   formatDayTime,
+  formatPrice,
+  formatPriceShort,
   formatRange,
+  formatUsd,
   formatZoneName,
   toDateTimeLocal,
   toOffsetIso,
@@ -47,6 +50,24 @@ describe("time formatting", () => {
   });
 });
 
+describe("price formatting", () => {
+  it("formats $/MWh with two decimals", () => {
+    expect(formatPrice(38.4)).toBe("$38.40");
+    expect(formatPrice(1234.5)).toBe("$1,234.50");
+  });
+
+  it("uses a real minus sign for negative prices", () => {
+    expect(formatPrice(-12)).toBe("−$12.00");
+    expect(formatUsd(-0.4)).toBe("−$0.40");
+  });
+
+  it("rounds axis labels to whole numbers", () => {
+    expect(formatPriceShort(38.4)).toBe("38");
+    expect(formatPriceShort(-12.6)).toBe("−13");
+    expect(formatPriceShort(0)).toBe("0");
+  });
+});
+
 describe("formatAge", () => {
   const now = Date.parse("2026-10-21T18:00:00Z");
   const ago = (minutes: number) => new Date(now - minutes * 60_000);
@@ -72,14 +93,17 @@ describe("datetime values", () => {
 });
 
 describe("buildCliCommand", () => {
-  it("mirrors the planner's region, length and deadline", () => {
-    expect(buildCliCommand({ region: "CISO", durationHours: 4, deadline: new Date("2026-10-23T18:00:00-07:00") })).toBe(
-      "carbon windows --duration 4h --deadline 2026-10-23T18:00-07:00 --region CISO",
+  it("mirrors the planner's campus, length and deadline", () => {
+    expect(buildCliCommand({ region: "fresno-1", durationHours: 4, deadline: new Date("2026-10-23T18:00:00-07:00") })).toBe(
+      "carbon-windows best --duration 4 --deadline 2026-10-23T18:00-07:00 --location fresno-1",
     );
   });
 
   it("leaves out the deadline when it's the end of the forecast, the CLI's default", () => {
-    expect(buildCliCommand({ region: "PJM", durationHours: 2, deadline: null })).toBe("carbon windows --duration 2h --region PJM");
+    expect(buildCliCommand({ region: "fresno-1", durationHours: 2, deadline: null })).toBe("carbon-windows best --duration 2 --location fresno-1");
+    expect(buildCliCommand({ region: "fresno-1", durationHours: 2, kw: 40, deadline: null })).toBe(
+      "carbon-windows best --duration 2 --kw 40 --location fresno-1",
+    );
   });
 });
 
@@ -104,48 +128,48 @@ describe("CLI output", () => {
   const start = Date.parse("2026-10-22T11:00:00-07:00");
   const hour = (h: number) => new Date(start + h * 3_600_000).toISOString();
   const forecast: ForecastResponse = {
-    region: "CISO",
+    region: "fresno-1",
     generated_at: hour(0),
     stale: false,
     data_source: "synthetic",
-    points: [300, 200, 100, 150, 250, 300].map((intensity, h) => ({ start: hour(h), intensity })),
+    points: [30, 20, 10, 15, 25, 30].map((price, h) => ({ start: hour(h), price })),
   };
   const response: WindowsResponse = {
-    region: "CISO",
+    region: "fresno-1",
     generated_at: hour(0),
     stale: false,
     data_source: "synthetic",
-    job: { duration_hours: 2, deadline: hour(6), deadline_clamped: false },
-    baseline: { start: hour(0), end: hour(2), avg_intensity_g_per_kwh: 250 },
+    job: { duration_hours: 2, kw: 8, deadline: hour(6), deadline_clamped: false },
+    baseline: { start: hour(0), end: hour(2), avg_price_usd_per_mwh: 25, cost_usd: 0.4 },
     windows: [
-      { rank: 1, start: hour(2), end: hour(4), avg_intensity_g_per_kwh: 125, co2_saved_pct: 50 },
-      { rank: 2, start: hour(4), end: hour(6), avg_intensity_g_per_kwh: 275, co2_saved_pct: -10 },
+      { rank: 1, start: hour(2), end: hour(4), avg_price_usd_per_mwh: 12.5, cost_usd: 0.2, saved_usd: 0.2, saved_usd_per_mwh: 12.5 },
+      { rank: 2, start: hour(4), end: hour(6), avg_price_usd_per_mwh: 27.5, cost_usd: 0.44, saved_usd: -0.04, saved_usd_per_mwh: -2.5 },
     ],
   };
 
-  it("prints the same table as `carbon windows`", () => {
+  it("prints the summary, price chart and ranked windows", () => {
     expect(formatCliTable(response, forecast, Date.parse("2026-10-22T11:30:00-07:00"))).toBe(
       [
-        "Synthetic data: made-up forecasts, not real grid data.",
-        "Region CISO · forecast from Thu 11:00 · running now: 250 gCO₂/kWh",
+        "Synthetic data: made-up prices, not real CAISO data.",
+        "Site fresno-1 · forecast from Thu 11:00 · running now: 25 $/MWh ($0.40)",
         "",
-        "Best: Thu 13:00–15:00 PDT (in 1h 30m) · 50% less CO₂ than running now",
+        "Best: Thu 13:00–15:00 PDT (in 1h 30m) · saves $0.20 vs running now",
         "",
         "Thu 11:00",
-        "█▅▁▃▆█  100–300 gCO₂/kWh",
+        "█▅▁▃▆█  10–30 $/MWh",
         "  1┘2┘",
-        "┏━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━┓",
-        "┃ Rank ┃ Start     ┃ End       ┃ Avg gCO₂/kWh ┃ CO₂ saved ┃",
-        "┡━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━┩",
-        "│ 1    │ Thu 13:00 │ Thu 15:00 │ 125          │ 50%       │",
-        "│ 2    │ Thu 15:00 │ Thu 17:00 │ 275          │ -10%      │",
-        "└──────┴───────────┴───────────┴──────────────┴───────────┘",
+        "┏━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━┓",
+        "┃ Rank ┃ Start     ┃ End       ┃ Avg $/MWh ┃ Cost  ┃ Saved  ┃",
+        "┡━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━┩",
+        "│ 1    │ Thu 13:00 │ Thu 15:00 │ 12        │ $0.20 │ $0.20  │",
+        "│ 2    │ Thu 15:00 │ Thu 17:00 │ 28        │ $0.44 │ −$0.04 │",
+        "└──────┴───────────┴───────────┴───────────┴───────┴────────┘",
       ].join("\n"),
     );
   });
 
   it("prints the API response as indented JSON for agents", () => {
     expect(JSON.parse(formatCliJson(response))).toEqual(response);
-    expect(formatCliJson(response)).toContain('\n  "region": "CISO"');
+    expect(formatCliJson(response)).toContain('\n  "region": "fresno-1"');
   });
 });

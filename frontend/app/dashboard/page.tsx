@@ -5,7 +5,7 @@ import { SiteHeader } from "@/components/site-header";
 
 export const metadata: Metadata = {
   title: "Dashboard",
-  description: "Forecast grid carbon intensity for the next 48 hours and find the cleanest time to run your job.",
+  description: "See electricity prices for the next several days and find the cheapest time to run your job.",
 };
 
 export default function DashboardPage() {
